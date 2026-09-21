@@ -1,21 +1,20 @@
 #define NOMINMAX
-#include <windows.h>
-
+#include <Epub/Page.h>
+#include <Epub/parsers/ChapterHtmlSlimParser.h>
 #include <FontCacheManager.h>
 #include <FontDecompressor.h>
 #include <GfxRenderer.h>
 #include <builtinFonts/kopub_14_regular.h>
 #include <builtinFonts/pretendard_10_regular.h>
-#include <Epub/Page.h>
-#include <Epub/parsers/ChapterHtmlSlimParser.h>
-
-#include "DesktopEpub.h"
+#include <windows.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <vector>
+
+#include "DesktopEpub.h"
 
 namespace {
 HalDisplay display;
@@ -61,7 +60,8 @@ void copyFrameBuffer(const GfxRenderer& renderer) {
           physicalX = display.getDisplayWidth() - 1 - y;
           physicalY = x;
           break;
-        case GfxRenderer::LandscapeCounterClockwise: break;
+        case GfxRenderer::LandscapeCounterClockwise:
+          break;
       }
       const bool white = (frame[physicalY * widthBytes + physicalX / 8] & (0x80u >> (physicalX % 8))) != 0;
       pixels[static_cast<size_t>(y) * screenWidth + x] = white ? 0x00ffffffu : 0u;
@@ -72,12 +72,11 @@ void copyFrameBuffer(const GfxRenderer& renderer) {
 bool renderXhtml(const std::string& path, GfxRenderer& renderer) {
   pages.clear();
   currentPage = 0;
-  ChapterHtmlSlimParser parser(nullptr, path, renderer, 1, 1.2f, false, 0,
-                               static_cast<uint16_t>(renderer.getScreenWidth() - 48),
-                               static_cast<uint16_t>(renderer.getScreenHeight() - 72), false, false,
-                               [](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t) {
-                                 pages.push_back(std::move(page));
-                               }, false, "", "", 0, {}, nullptr, nullptr, true, true);
+  ChapterHtmlSlimParser parser(
+      nullptr, path, renderer, 1, 1.2f, false, 0, static_cast<uint16_t>(renderer.getScreenWidth() - 48),
+      static_cast<uint16_t>(renderer.getScreenHeight() - 72), false, false,
+      [](std::unique_ptr<Page> page, uint16_t, uint16_t, uint32_t) { pages.push_back(std::move(page)); }, false, "", "",
+      0, {}, nullptr, nullptr, true, true);
   if (!parser.parseAndBuildPages() || pages.empty()) return false;
   renderDocumentPage();
   return true;
@@ -114,8 +113,7 @@ bool saveBmp(const char* path) {
   info.biBitCount = 32;
   info.biCompression = BI_RGB;
   info.biSizeImage = imageSize;
-  const bool ok = fwrite(&fileHeader, sizeof(fileHeader), 1, file) == 1 &&
-                  fwrite(&info, sizeof(info), 1, file) == 1 &&
+  const bool ok = fwrite(&fileHeader, sizeof(fileHeader), 1, file) == 1 && fwrite(&info, sizeof(info), 1, file) == 1 &&
                   fwrite(pixels.data(), imageSize, 1, file) == 1;
   fclose(file);
   return ok;
@@ -157,8 +155,8 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     info.bmiHeader.biBitCount = 32;
     info.bmiHeader.biCompression = BI_RGB;
     FillRect(dc, &client, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-    const double scale = std::min(static_cast<double>(client.right) / screenWidth,
-                                  static_cast<double>(client.bottom) / screenHeight);
+    const double scale =
+        std::min(static_cast<double>(client.right) / screenWidth, static_cast<double>(client.bottom) / screenHeight);
     const int drawnWidth = static_cast<int>(screenWidth * scale);
     const int drawnHeight = static_cast<int>(screenHeight * scale);
     const int left = (client.right - drawnWidth) / 2;
@@ -183,10 +181,14 @@ int main(int argc, char** argv) {
   const char* book = nullptr;
   bool headless = false;
   for (int i = 1; i < argc; ++i) {
-    if (strcmp(argv[i], "--headless") == 0) headless = true;
-    else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) screenshot = argv[++i];
-    else if (strcmp(argv[i], "--xhtml") == 0 && i + 1 < argc) xhtml = argv[++i];
-    else if (strcmp(argv[i], "--book") == 0 && i + 1 < argc) book = argv[++i];
+    if (strcmp(argv[i], "--headless") == 0)
+      headless = true;
+    else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc)
+      screenshot = argv[++i];
+    else if (strcmp(argv[i], "--xhtml") == 0 && i + 1 < argc)
+      xhtml = argv[++i];
+    else if (strcmp(argv[i], "--book") == 0 && i + 1 < argc)
+      book = argv[++i];
   }
   display.begin();
   GfxRenderer renderer(display);
@@ -233,9 +235,9 @@ int main(int argc, char** argv) {
   windowClass.lpszClassName = L"CrossPointDesktopPreview";
   windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
   if (!RegisterClassW(&windowClass)) return 3;
-  const HWND window = CreateWindowExW(0, windowClass.lpszClassName, L"CrossPoint 1.6 KO Desktop Preview",
-                                      WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 600, 920, nullptr, nullptr,
-                                      instance, nullptr);
+  const HWND window =
+      CreateWindowExW(0, windowClass.lpszClassName, L"CrossPoint 1.6 KO Desktop Preview", WS_OVERLAPPEDWINDOW,
+                      CW_USEDEFAULT, CW_USEDEFAULT, 600, 920, nullptr, nullptr, instance, nullptr);
   if (!window) return 4;
   ShowWindow(window, SW_SHOW);
   MSG message{};

@@ -1,8 +1,9 @@
 #pragma once
+#include <Print.h>
+
 #include <cstdint>
 #include <cstdio>
 #include <string>
-#include <Print.h>
 
 class HalFile : public Print {
  public:

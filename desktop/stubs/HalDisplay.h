@@ -2,6 +2,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+
 #include "DesktopBoardProfile.h"
 
 class HalDisplay {
@@ -57,8 +58,10 @@ class HalDisplay {
         if (transparent && white) continue;
         uint8_t& target = buffer_[(y + row) * DISPLAY_WIDTH_BYTES + (x + col) / 8];
         const uint8_t mask = 0x80u >> ((x + col) % 8);
-        if (white) target |= mask;
-        else target &= static_cast<uint8_t>(~mask);
+        if (white)
+          target |= mask;
+        else
+          target &= static_cast<uint8_t>(~mask);
       }
     }
   }
