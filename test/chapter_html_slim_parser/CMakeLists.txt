@@ -1,6 +1,7 @@
 add_executable(ChapterHtmlSlimParserTest
   ChapterHtmlSlimParserTest.cpp
   KoreanParserLayoutTest.cpp
+  KoreanLayoutGoldenTest.cpp
   ParserLinkStubs.cpp
   ${REPO_ROOT}/lib/Epub/Epub/parsers/ChapterHtmlSlimParser.cpp
   ${REPO_ROOT}/lib/Epub/Epub/css/CssParser.cpp
@@ -29,6 +30,9 @@ target_link_libraries(ChapterHtmlSlimParserTest PRIVATE
   GTest::gtest_main
   expat
 )
+
+target_compile_definitions(ChapterHtmlSlimParserTest PRIVATE
+  KOREAN_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden")
 
 if(MSVC)
   target_compile_definitions(ChapterHtmlSlimParserTest PRIVATE strcasecmp=_stricmp)
