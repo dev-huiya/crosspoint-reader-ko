@@ -281,7 +281,8 @@ void EpubReaderActivity::openReaderMenu() {
   startActivityForResult(
       std::make_unique<EpubReaderMenuActivity>(renderer, mappedInput, epub->getTitle(), position.displayPage(),
                                                position.totalPages, bookProgressPercent, SETTINGS.orientation,
-                                               !currentPageFootnotes.empty(), !cachedBookmarks.empty()),
+                                               !currentPageFootnotes.empty(), !cachedBookmarks.empty(),
+                                               totalReadingSeconds()),
       [this](const ActivityResult& result) {
         const auto& menu = std::get<MenuResult>(result.data);
 
@@ -376,6 +377,7 @@ void EpubReaderActivity::loop() {
   }
 
   rememberBookOnceRendered();
+  tickReadingTimer(overlay == Overlay::None);
 
   // Someone else turned the screen while this reader was stacked (the control
   // center's orientation tile). Reflow before the next render, or the page

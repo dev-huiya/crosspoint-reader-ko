@@ -74,6 +74,8 @@ void ReaderActivity::onEnter() {
     return;
   }
 
+  readingTimer.start(getBookCachePath());
+
   requestUpdate();
 }
 
@@ -86,6 +88,7 @@ void ReaderActivity::rememberBookOnceRendered() {
 }
 
 void ReaderActivity::onExit() {
+  readingTimer.stop();
   Activity::onExit();
 
   // Keep rebuildable font buffers from pinning the heap between reading sessions.
@@ -101,6 +104,17 @@ void ReaderActivity::onExit() {
 
   endOfBookOptions.reset();
   endOfBookOptionsReady.store(false, std::memory_order_release);
+}
+
+void ReaderActivity::tickReadingTimer(bool pageVisible) {
+  if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased() || mappedInput.wasTouchActivity()) {
+    readingTimer.notifyInput();
+  }
+  if (pageVisible) {
+    readingTimer.tick();
+  } else {
+    readingTimer.pause();
+  }
 }
 
 bool ReaderActivity::handleBackNavigation() {
@@ -164,6 +178,7 @@ bool ReaderActivity::handleEndOfBookPageTurn(const bool prevTriggered, const boo
 
 void ReaderActivity::loop() {
   rememberBookOnceRendered();
+  tickReadingTimer();
   clearEndOfBookOptionsIfNeeded();
   if (handleEndOfBookMenu()) return;
   if (handleFormatInput()) return;

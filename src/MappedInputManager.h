@@ -110,6 +110,7 @@ class MappedInputManager {
   bool wasLightPanelGesture() const;
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
+  bool wasTouchActivity() const;
   unsigned long getHeldTime() const;
   const GfxRenderer& getRenderer() const { return renderer; }
   Labels mapLabels(const char* back, const char* confirm, const char* previous, const char* next) const;

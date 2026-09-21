@@ -8,19 +8,22 @@
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "components/UITheme.h"
+#include "util/ReadingStats.h"
 
 namespace fui = freeink::ui;
 
 EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
-                                               const bool hasFootnotes, const bool hasBookmarks)
+                                               const bool hasFootnotes, const bool hasBookmarks,
+                                               const uint32_t totalReadingSeconds)
     : UiListActivity("EpubReaderMenu", renderer, mappedInput),
       title(title),
       pendingOrientation(currentOrientation),
       currentPage(currentPage),
       totalPages(totalPages),
-      bookProgressPercent(bookProgressPercent) {
+      bookProgressPercent(bookProgressPercent),
+      totalReadingSeconds(totalReadingSeconds) {
   buildMenuItems(menuItems, hasFootnotes, hasBookmarks);
   buildMenuRowItems();
 }
@@ -167,6 +170,12 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
   const fui::Rect band = screen.takeTop(static_cast<int16_t>(metrics.tabBarHeight));
   const int16_t pad = screen.theme().headerSidePadding;
   screen.target().text(band.inset(fui::Insets{0, pad, 0, pad}), progressLine.c_str(), screen.theme().smallText);
+  char timeText[16];
+  ReadingStats::format(totalReadingSeconds, timeText, sizeof(timeText));
+  const fui::Rect timeBand = screen.takeTop(static_cast<int16_t>(metrics.tabBarHeight));
+  char readingLine[64];
+  snprintf(readingLine, sizeof(readingLine), "%s: %s", tr(STR_READING_TIME), timeText);
+  screen.target().text(timeBand.inset(fui::Insets{0, pad, 0, pad}), readingLine, screen.theme().smallText);
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   // menuRowItems's labels/actionValue were set once in the constructor (see
