@@ -29,6 +29,7 @@ class ReaderActivity : public Activity {
   virtual std::string getBookCachePath() const = 0;
   void tickReadingTimer(bool pageVisible = true);
   uint32_t totalReadingSeconds() const { return readingTimer.totalSeconds(); }
+  void resetReadingTimer() { readingTimer.reset(); }
 
   virtual bool handleFormatInput() { return false; }
   virtual bool pageTurn(bool isForward) = 0;
