@@ -21,7 +21,7 @@ class GfxRenderer {
   void drawLine(int, int, int, int, int, bool) const {}
   void drawText(int, int, int, const char*, bool, EpdFontFamily::Style,
                 BidiUtils::BidiBaseDir = BidiUtils::BidiBaseDir::AUTO, int8_t = 0) const {}
-  int getTextWidth(int font, const char* text, EpdFontFamily::Style style,
+  int getTextWidth(int font, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR,
                    BidiUtils::BidiBaseDir = BidiUtils::BidiBaseDir::AUTO) const {
     return getTextAdvanceX(font, text, style);
   }

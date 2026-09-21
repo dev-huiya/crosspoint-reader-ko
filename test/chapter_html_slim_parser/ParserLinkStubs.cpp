@@ -7,6 +7,10 @@
 #include <Epub/hyphenation/Hyphenator.h>
 #include <GfxRenderer.h>
 
+#include "LayoutCapture.h"
+
+std::vector<CapturedLayoutLine> capturedLayoutLines;
+
 const char* lookupHtmlEntity(const char*, size_t) { return nullptr; }
 
 #include <BidiUtils.h>

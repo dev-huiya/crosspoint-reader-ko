@@ -64,6 +64,9 @@ class ParsedText {
   bool extraParagraphSpacing;
   bool hyphenationEnabled;
   bool focusReadingEnabled;
+  bool characterWrap;
+  bool paragraphIndent;
+  bool paragraphIndentApplied = false;
   bool isNaturalAlign;
   bool hasRtlWord;
   bool droppedWords = false;
@@ -103,11 +106,14 @@ class ParsedText {
 
  public:
   explicit ParsedText(const bool extraParagraphSpacing, const bool hyphenationEnabled = false,
-                      const bool focusReadingEnabled = false, const BlockStyle& blockStyle = BlockStyle())
+                      const bool focusReadingEnabled = false, const BlockStyle& blockStyle = BlockStyle(),
+                      const bool characterWrap = false, const bool paragraphIndent = false)
       : blockStyle(blockStyle),
         extraParagraphSpacing(extraParagraphSpacing),
         hyphenationEnabled(hyphenationEnabled),
         focusReadingEnabled(focusReadingEnabled),
+        characterWrap(characterWrap),
+        paragraphIndent(paragraphIndent),
         isNaturalAlign(false),
         hasRtlWord(false) {}
   ~ParsedText() = default;

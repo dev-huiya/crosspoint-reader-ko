@@ -163,8 +163,10 @@ bool cjkBoundaryAllowsBreak(const uint32_t leftCp, const uint32_t rightCp) {
 
 // Korean separates words with spaces, so a boundary touching Hangul is not a gap-less break inside
 // a line. hangulLineEndBreaks() still lets a Hangul word split there at a line end.
-bool hasCjkBreakOpportunityBetween(const uint32_t leftCp, const uint32_t rightCp) {
-  if (utf8IsHangul(leftCp) || utf8IsHangul(rightCp)) return false;
+// KO character wrap (splitHangul) keeps the pre-#3700 rule: every syllable boundary is a break
+// opportunity, as in KO 1.5 and 1.6.0-ko; its justification stretch is capped in extractLine().
+bool hasCjkBreakOpportunityBetween(const uint32_t leftCp, const uint32_t rightCp, const bool splitHangul = false) {
+  if (!splitHangul && (utf8IsHangul(leftCp) || utf8IsHangul(rightCp))) return false;
   return cjkBoundaryAllowsBreak(leftCp, rightCp);
 }
 
@@ -186,7 +188,7 @@ std::vector<Hyphenator::BreakInfo> hangulLineEndBreaks(const std::string& word) 
   return breaks;
 }
 
-std::vector<size_t> cjkCharacterBreakByteOffsets(const std::string& text) {
+std::vector<size_t> cjkCharacterBreakByteOffsets(const std::string& text, const bool splitHangul) {
   struct CodepointBoundary {
     uint32_t cp;
     size_t endOffset;
@@ -214,7 +216,7 @@ std::vector<size_t> cjkCharacterBreakByteOffsets(const std::string& text) {
   for (size_t i = 0; i + 1 < codepoints.size(); ++i) {
     const uint32_t current = codepoints[i].cp;
     const uint32_t next = codepoints[i + 1].cp;
-    if (!hasCjkBreakOpportunityBetween(current, next)) continue;
+    if (!hasCjkBreakOpportunityBetween(current, next, splitHangul)) continue;
     allowedOffsets.push_back(codepoints[i].endOffset);
   }
   return allowedOffsets;
@@ -491,7 +493,8 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
   // whitespace separated the two words, that space is content and must be rendered: Korean
   // is a space-delimited script written in Hangul, which utf8IsCjkBreakable() covers.
   if (attachToPrevious && !words.empty() &&
-      hasCjkBreakOpportunityBetween(lastCodepoint(wordStore.view(words.back())), firstCodepoint(word))) {
+      hasCjkBreakOpportunityBetween(lastCodepoint(wordStore.view(words.back())), firstCodepoint(word),
+                                    characterWrap)) {
     effectiveAttachToPrevious = false;
     effectiveNoSpaceBefore = true;
   }
@@ -519,7 +522,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
     wordVisibleOffsetDeltas.reserve(newCapacity);
   };
 
-  if (auto breakOffsets = cjkCharacterBreakByteOffsets(word); !breakOffsets.empty()) {
+  if (auto breakOffsets = cjkCharacterBreakByteOffsets(word, characterWrap); !breakOffsets.empty()) {
     // CJK-heavy paragraphs can push hundreds of tiny tokens quickly when CSS toggles
     // inline styles. Reserve once up front to avoid repeated vector growth reallocations.
     ensureTokenCapacity(breakOffsets.size() + 1);
@@ -710,7 +713,7 @@ void ParsedText::ensureRubyCapacity() {
 }
 
 int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer& renderer, const int fontId) const {
-  if (!isFirstLine || !isNaturalAlign) {
+  if (!isFirstLine || paragraphIndentApplied || !isNaturalAlign) {
     return 0;
   }
   if (blockStyle.textIndentDefined) {
@@ -718,6 +721,9 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
       return blockStyle.textIndent;
     }
     return 0;
+  }
+  if (paragraphIndent) {
+    return renderer.getTextWidth(fontId, "\xE3\x80\x80");  // U+3000 ideographic space
   }
   if (!extraParagraphSpacing) {
     return scaleSpace(renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR), wordSpacingPercent) * 3;
@@ -800,6 +806,9 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     extractLine(i, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore, lineBreakIndices, processLine, renderer,
                 fontId);
   }
+  // A soft flush retains its incomplete last line. Mark indentation only after
+  // the first line has actually been emitted and its tokens can be consumed.
+  if (lineCount > 0) paragraphIndentApplied = true;
 
   // Remove consumed words so size() reflects only remaining words
   if (lineCount > 0) {
@@ -1439,9 +1448,12 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   // For justified text, compute per-gap extra to distribute remaining space evenly.
   // extraEndOffset reserves space for any ruby group at the right edge of the line.
   const int spareSpace = effectivePageWidth - extraStartOffset - extraEndOffset - lineWordWidthSum - totalNaturalGaps;
-  const int justifyExtra = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
-                               ? computeJustifyExtra(spareSpace, actualGapCount)
-                               : 0;
+  int justifyExtra = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
+                         ? computeJustifyExtra(spareSpace, actualGapCount)
+                         : 0;
+  if (characterWrap) {
+    justifyExtra = std::min(justifyExtra, renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR) / 2);
+  }
 
   // BiDi processing: reorder words with UAX#9 in full-line context.
   visualOrderScratch.clear();
@@ -1524,9 +1536,13 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
 
     const int reorderedSpare =
         effectivePageWidth - extraStartOffset - extraEndOffset - reorderedWordWidthSum - reorderedNaturalGaps;
-    const int reorderedJustifyExtra = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
-                                          ? computeJustifyExtra(reorderedSpare, reorderedGapCount)
-                                          : 0;
+    int reorderedJustifyExtra = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
+                                    ? computeJustifyExtra(reorderedSpare, reorderedGapCount)
+                                    : 0;
+    if (characterWrap) {
+      reorderedJustifyExtra = std::min(reorderedJustifyExtra,
+                                       renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR) / 2);
+    }
 
     const int justifyContribution = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
                                         ? reorderedJustifyExtra * static_cast<int>(reorderedGapCount)
