@@ -29,4 +29,8 @@ target_link_libraries(ChapterHtmlSlimParserTest PRIVATE
   expat
 )
 
+if(MSVC)
+  target_compile_definitions(ChapterHtmlSlimParserTest PRIVATE strcasecmp=_stricmp)
+endif()
+
 gtest_discover_tests(ChapterHtmlSlimParserTest)

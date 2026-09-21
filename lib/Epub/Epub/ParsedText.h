@@ -14,6 +14,7 @@
 class GfxRenderer;
 
 class ParsedText {
+  friend struct ParsedTextTestAccess;
   // words/rubyTexts are std::deque, not std::vector: a paragraph can hold thousands
   // of tokens (CJK splits every character), and a vector grows by reallocating its
   // whole element array into one contiguous block (32 B/std::string -> 64-128 KB at
