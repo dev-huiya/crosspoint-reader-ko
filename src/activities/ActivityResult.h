@@ -21,6 +21,7 @@ struct MenuResult {
   int action = -1;
   uint8_t orientation = 0;
   uint8_t pageTurnOption = 0;
+  uint8_t pageJumpOption = 0;  // TXT reader long-press page jump (index into its step table, 0 = off)
 };
 
 struct ChapterResult {
