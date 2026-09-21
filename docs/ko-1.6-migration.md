@@ -169,7 +169,7 @@ program flash usage against the 6,553,600-byte app partition
 | `x4pro` | 4,713,086 | 71.9% | 4,713,600 |
 | `x4pro-gh_release` | 4,674,230 | 71.3% | 4,674,736 |
 
-After the TXT reader port (commit `6c854ed2`, 2026-09-21): `default`
+After the TXT reader port (commit `f217d88b`, 2026-09-21): `default`
 4,882,573 (74.5%), `x4pro` 4,785,314 (73.0%). The built-in font coverage
 extension (kana, KS X 1001 symbols, fullwidth forms) accounts for most of the
 growth since the Phase 5 row; the TXT port itself is about 10 KB.
