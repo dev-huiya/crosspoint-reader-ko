@@ -40,8 +40,8 @@ decision. These are port decisions, not claims that work is complete.
 | Long-press chapter/page behavior | UPSTREAM_REPLACEMENT, REVIEW | 1.6 already has `longPressButtonBehavior` and `MappedInputManager` held-time handling; compare KO edge behavior before extending. |
 | Short Back to file browser | UPSTREAM_REPLACEMENT, REVIEW | 1.6 already has `backShortToFileBrowser`; verify footnote and overlay priority. |
 | Sleep image selection | KEEP, REIMPLEMENT | Keep KO selection data, compose with 1.6 transparent sleep overlays. |
-| X3/X4 raw-SD staged OTA | REVIEW | Retain only if image verification and partition tests justify it. |
-| X4 Pro raw-SD OTA | DROP unless proven needed | Use the official 1.6 X4 Pro OTA path first. |
+| X3/X4 raw-SD staged OTA | UPSTREAM_REPLACEMENT | KO 1.5 needed it because its post-build script patched the image's eFuse fields for the X3 stock bootloader and the running app's `esp_image_verify` then rejected that patched image. Upstream 1.6 no longer patches images and wraps `bootloader_common_check_efuse_blk_validity` (#1805), so `esp_ota_*` OTA works on X3/X4 with unpatched images. See "OTA" below. |
+| X4 Pro raw-SD OTA | UPSTREAM_REPLACEMENT | The official 1.6 `esp_ota_*` path over wolfSSL. |
 | KO release endpoint and version parser | KEEP, REIMPLEMENT | Update endpoint and parser without replacing 1.6 networking/device profiles. |
 | X4 Pro hardware drivers | UPSTREAM_REPLACEMENT | Use upstream 1.6 board, touch, frontlight, Home key, USB and sleep HAL. |
 | Legacy `TextSettingsActivity` removal | REVIEW | 1.6 reader flow determines whether any KO-specific screen is needed. |
@@ -130,3 +130,79 @@ navigation and EPUB rendering, both firmware builds, and a partition-specific
 size check. The desktop emulator cannot validate e-ink waveforms, electrical
 touch behavior, SD timing, WiFi heap pressure, deep-sleep current, battery
 hardware, USB electrical behavior, or the watchdog.
+
+## OTA
+
+KO 1.5 downloaded the firmware to the SD card and flashed it with raw
+partition writes (`firmware_flash::flashFromSdPath`), bypassing
+`esp_ota_end()`. The reason was specific to KO 1.5's build: its
+`patch_firmware_image.py` rewrote `esp_app_desc_t`'s eFuse block-revision
+fields so the X3 stock bootloader would accept the image, and the running
+firmware's `esp_image_verify` rejected the patched image with bogus eFuse
+errors. Upstream 1.6 fixed the same X3 problem the other way round: images
+are not patched, and `platformio.ini` wraps
+`bootloader_common_check_efuse_blk_validity` (src/platform/skip_efuse_blk_check.c,
+upstream #1805) so the app-side check passes. Its `OtaUpdater` streams the
+download through `esp_ota_write()` and verifies with `esp_ota_end()`.
+
+Decision: keep the upstream OTA path for every board. The KO changes to OTA are
+the release feed (crosspoint-reader-ko releases), the `-ko.N` version compare
+(`src/network/KoReleaseVersion.h`), and the release workflow writing the tag
+into `platformio.ini`. Not verified on X3/X4 hardware in this migration (only an
+X4 Pro is available); the C3 path is unchanged upstream code.
+
+## Firmware size (Phase 5 gate)
+
+All release-relevant environments on `release/1.6.0-ko` at the Phase 5 commit,
+program flash usage against the 6,553,600-byte app partition
+(`partitions.csv`, the same table for every board):
+
+| Environment | Program flash | Usage | `firmware.bin` |
+| --- | --- | --- | --- |
+| `default` | 4,809,561 | 73.4% | 4,823,280 |
+| `gh_release` | 4,764,419 | 72.7% | 4,778,128 |
+| `x4pro` | 4,713,086 | 71.9% | 4,713,600 |
+| `x4pro-gh_release` | 4,674,230 | 71.3% | 4,674,736 |
+
+Headroom is over 1.7 MB on every board, so `CP_HYPHENATION_LANGS=0` (KO 1.5's
+hyphenation-table cut) is not reintroduced and the upstream hyphenation
+languages stay available when character wrap is off.
+
+## Phase records
+
+### Phase 3 — layout
+
+- Implemented: `characterWrap` / `paragraphIndent` reach the dictionary
+  definition pages and the Text Settings preview (they were silently off
+  there); parser-level soft-flush regression tests (320/750-token thresholds,
+  chunked `characterData()`, mixed script, punctuation, indent-once, gap cap
+  with an uncapped control); golden layout snapshots for four setting
+  combinations.
+- Changed files: `src/util/DictHtmlPages.cpp`, `src/activities/settings/TextSettingsPreview.*`,
+  `test/chapter_html_slim_parser/{KoreanParserLayoutTest,KoreanLayoutGoldenTest}.cpp`,
+  `test/chapter_html_slim_parser/golden/*.txt`, `ParserTestAccess.h`.
+- Tests added: 13 parser cases + 4 golden cases. Tests passed: host suite 181 -> 198, all green.
+- Known issues: goldens are approved from the first 1.6 KO implementation (see
+  the file header for why KO 1.5 cannot be the baseline). Cache version stays
+  46: the layout representation did not change in this phase.
+
+### Phase 4 — reader and fonts
+
+- Implemented: KoPub UI fallback survives SD font load/unload; legacy
+  `/.crosspoint/fonts` root and stale `systemFontPath` clearing; "UI font"
+  setting (Pretendard or an SD family) applied immediately; reset reading time
+  on the EPUB menu (1.6 has no TXT/XTC menu, so those readers keep only chapter
+  selection); sleep image selection store (1.5 file format) with a FUI list
+  screen and a selection-aware random picker; 83 stale Korean strings removed.
+- Upstream replacements verified in code: auto page turn, long-press page
+  behaviour, back-short-to-file-browser all exist in 1.6 and are untouched.
+- Firmware: `default` 4,809,533 bytes program flash after this phase.
+
+### Phase 5 — OTA, release, size, cache
+
+- Implemented: `-ko.N` version channel with suffix tolerance
+  (`1.6.0-ko.0-x4pro` is a development build of ko.0), base version
+  `1.6.0-ko.0`, release workflow sets the version from the tag. OTA path:
+  upstream (see "OTA"). Size gate: table above. Cache: `SECTION_FILE_VERSION`
+  46 (> upstream 45 > KO 1.5's 42), so caches from every earlier build rebuild.
+
