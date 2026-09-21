@@ -241,10 +241,12 @@ bool buildDictionaryHtmlPages(GfxRenderer& renderer, const std::string& definiti
     // Heap-allocated as Section does — the parser object is far too large for
     // a stack local. Null epub is safe: imageRendering=2 suppresses <img>
     // handling, the only path that dereferences it.
+    // Same render spec as the reader so the Korean layout flags (character
+    // wrap, paragraph indent) and the hyphenation gate apply to definitions too.
+    const ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
     auto parser = makeUniqueNoThrow<ChapterHtmlSlimParser>(
-        nullptr, tmpPath, renderer, SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-        SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth, viewportHeight,
-        SETTINGS.hyphenationEnabled, SETTINGS.focusReadingEnabled,
+        nullptr, tmpPath, renderer, spec.fontId, spec.lineCompression, spec.extraParagraphSpacing,
+        spec.paragraphAlignment, viewportWidth, viewportHeight, spec.hyphenationEnabled, spec.focusReadingEnabled,
         [&pagesOut, &resourceLimitHit, &retainedElements, &limitReason](std::unique_ptr<Page> page, uint16_t, uint16_t,
                                                                         uint32_t) {
           if (resourceLimitHit) return;
@@ -271,7 +273,9 @@ bool buildDictionaryHtmlPages(GfxRenderer& renderer, const std::string& definiti
           retainedElements += pageElements;
           pagesOut.push_back(std::move(page));
         },
-        /*embeddedStyle=*/false, /*contentBase=*/"", /*imageBasePath=*/"", /*imageRendering=*/2);
+        /*embeddedStyle=*/false, /*contentBase=*/"", /*imageBasePath=*/"", /*imageRendering=*/2,
+        /*tocAnchors=*/std::vector<std::string>{},
+        /*popupFn=*/nullptr, /*cssParser=*/nullptr, spec.characterWrap, spec.paragraphIndent);
     if (!parser) {
       LOG_ERR("DHTML", "OOM: ChapterHtmlSlimParser");
     } else {
