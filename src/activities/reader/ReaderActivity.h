@@ -7,10 +7,12 @@
 
 #include "EndOfBookOptions.h"
 #include "activities/Activity.h"
+#include "util/ReadingTimer.h"
 
 class ReaderActivity : public Activity {
  protected:
   std::string bookPath;
+  ReadingTimer readingTimer;
   int pagesUntilFullRefresh = 0;
   bool forcedRefreshPending = false;
 
@@ -24,6 +26,9 @@ class ReaderActivity : public Activity {
   virtual std::string getBookTitle() const = 0;
   virtual std::string getBookAuthor() const { return ""; }
   virtual std::string getBookThumbBmpPath() const { return ""; }
+  virtual std::string getBookCachePath() const = 0;
+  void tickReadingTimer(bool pageVisible = true);
+  uint32_t totalReadingSeconds() const { return readingTimer.totalSeconds(); }
 
   virtual bool handleFormatInput() { return false; }
   virtual bool pageTurn(bool isForward) = 0;

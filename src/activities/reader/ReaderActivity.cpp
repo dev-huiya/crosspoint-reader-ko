@@ -63,6 +63,8 @@ void ReaderActivity::onEnter() {
     return;
   }
 
+  readingTimer.start(getBookCachePath());
+
   APP_STATE.openEpubPath = bookPath;
   APP_STATE.saveToFile();
   RECENT_BOOKS.addBook(bookPath, getBookTitle(), getBookAuthor(), getBookThumbBmpPath());
@@ -70,6 +72,7 @@ void ReaderActivity::onEnter() {
 }
 
 void ReaderActivity::onExit() {
+  readingTimer.stop();
   Activity::onExit();
 
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -78,6 +81,17 @@ void ReaderActivity::onExit() {
 
   endOfBookOptions.reset();
   endOfBookOptionsReady.store(false, std::memory_order_release);
+}
+
+void ReaderActivity::tickReadingTimer(bool pageVisible) {
+  if (mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased() || mappedInput.wasTouchActivity()) {
+    readingTimer.notifyInput();
+  }
+  if (pageVisible) {
+    readingTimer.tick();
+  } else {
+    readingTimer.pause();
+  }
 }
 
 bool ReaderActivity::handleBackNavigation() {
@@ -140,6 +154,7 @@ bool ReaderActivity::handleEndOfBookPageTurn(const bool prevTriggered, const boo
 }
 
 void ReaderActivity::loop() {
+  tickReadingTimer();
   clearEndOfBookOptionsIfNeeded();
   if (handleEndOfBookMenu()) return;
   if (handleFormatInput()) return;

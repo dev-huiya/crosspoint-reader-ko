@@ -352,6 +352,8 @@ bool MappedInputManager::wasAnyPressed() const { return gpio.wasAnyPressed(); }
 
 bool MappedInputManager::wasAnyReleased() const { return gpio.wasAnyReleased(); }
 
+bool MappedInputManager::wasTouchActivity() const { return gpio.wasTouchActivity(); }
+
 unsigned long MappedInputManager::getHeldTime() const {
   if (!gpio.wasAnyPressed() && !gpio.wasAnyReleased() && touchHeldOverrideValid &&
       millis() - touchHeldOverrideAt <= TOUCH_HELD_OVERRIDE_WINDOW_MS) {
