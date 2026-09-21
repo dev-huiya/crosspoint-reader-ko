@@ -251,8 +251,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         // --- Reader ---
         // Built-in font-family entry. Replaced per-call with a registry-aware
         // version when SD fonts are installed.
-        SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
-                          {StrId::STR_KOPUB_BATANG}, "fontFamily", StrId::STR_CAT_READER)
+        SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily, {StrId::STR_KOPUB_BATANG},
+                          "fontFamily", StrId::STR_CAT_READER)
             .withTextSettings(),
         // Placeholder: the selectable sizes depend on the active font family, so
         // this entry is always replaced by buildFontSizeSetting() below. It only

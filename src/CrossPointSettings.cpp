@@ -310,11 +310,16 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
 
 float CrossPointSettings::getReaderLineCompression() const {
   switch (lineSpacing) {
-    case TIGHT: return 1.00f;
-    case NORMAL: return 1.20f;
-    case WIDE: return 1.40f;
-    case EXTRA_WIDE: return 1.60f;
-    default: return 1.20f;
+    case TIGHT:
+      return 1.00f;
+    case NORMAL:
+      return 1.20f;
+    case WIDE:
+      return 1.40f;
+    case EXTRA_WIDE:
+      return 1.60f;
+    default:
+      return 1.20f;
   }
 }
 

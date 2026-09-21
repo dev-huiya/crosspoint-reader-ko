@@ -1,8 +1,8 @@
 #include "KeyboardLayoutSet.h"
 
-#include "CrossPointSettings.h"
-
 #include <cstring>
+
+#include "CrossPointSettings.h"
 
 namespace keyboard_layouts {
 

@@ -87,8 +87,8 @@ bool DesktopEpub::open(const char* archivePath) {
       const char* id = attribute(attributes, "id");
       const char* href = attribute(attributes, "href");
       const char* mediaType = attribute(attributes, "media-type");
-      if (id && href && mediaType && (std::strcmp(mediaType, "application/xhtml+xml") == 0 ||
-                                    std::strcmp(mediaType, "text/html") == 0))
+      if (id && href && mediaType &&
+          (std::strcmp(mediaType, "application/xhtml+xml") == 0 || std::strcmp(mediaType, "text/html") == 0))
         index.manifest.emplace(id, href);
     } else if (std::strcmp(localName(name), "itemref") == 0) {
       const char* id = attribute(attributes, "idref");
@@ -101,8 +101,7 @@ bool DesktopEpub::open(const char* archivePath) {
     const auto item = index.manifest.find(id);
     if (item == index.manifest.end()) continue;
     const std::string path = resolveZipPath(opfPath, item->second);
-    if (!path.empty() && mz_zip_reader_locate_file(&archive_, path.c_str(), nullptr, 0) >= 0)
-      chapters_.push_back(path);
+    if (!path.empty() && mz_zip_reader_locate_file(&archive_, path.c_str(), nullptr, 0) >= 0) chapters_.push_back(path);
   }
   return !chapters_.empty();
 }

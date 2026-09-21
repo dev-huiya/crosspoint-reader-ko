@@ -25,9 +25,9 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
-#include "LegacyKoLanguage.h"
 #include "CrossPointState.h"
 #include "KOReaderCredentialStore.h"
+#include "LegacyKoLanguage.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"

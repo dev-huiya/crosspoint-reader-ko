@@ -24,9 +24,9 @@ namespace {
 // Tab labels for Font | Size | Layout | Style.
 constexpr StrId TAB_NAME_IDS[] = {StrId::STR_FONT, StrId::STR_SIZE, StrId::STR_LAYOUT, StrId::STR_STYLE};
 
-constexpr StrId LAYOUT_ROW_NAME_IDS[] = {StrId::STR_LINE_SPACING, StrId::STR_EXTRA_SPACING, StrId::STR_ALIGNMENT,
-                                         StrId::STR_SCREEN_MARGIN, StrId::STR_PARAGRAPH_INDENT,
-                                         StrId::STR_CHARACTER_WRAP};
+constexpr StrId LAYOUT_ROW_NAME_IDS[] = {StrId::STR_LINE_SPACING,     StrId::STR_EXTRA_SPACING,
+                                         StrId::STR_ALIGNMENT,        StrId::STR_SCREEN_MARGIN,
+                                         StrId::STR_PARAGRAPH_INDENT, StrId::STR_CHARACTER_WRAP};
 constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION, StrId::STR_EMBEDDED_STYLE,
                                         StrId::STR_TEXT_AA};
 

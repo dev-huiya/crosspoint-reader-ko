@@ -1418,8 +1418,8 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
                                     ? computeJustifyExtra(reorderedSpare, reorderedGapCount)
                                     : 0;
     if (characterWrap) {
-      reorderedJustifyExtra = std::min(reorderedJustifyExtra,
-                                       renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR) / 2);
+      reorderedJustifyExtra =
+          std::min(reorderedJustifyExtra, renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR) / 2);
     }
 
     const int justifyContribution = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)

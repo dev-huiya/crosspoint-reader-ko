@@ -263,20 +263,20 @@ void EpubReaderActivity::openReaderMenu() {
     bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
   }
   const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
-  startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
-                             renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                             SETTINGS.orientation, !currentPageFootnotes.empty(), !cachedBookmarks.empty(),
-                             totalReadingSeconds()),
-                         [this](const ActivityResult& result) {
-                           const auto& menu = std::get<MenuResult>(result.data);
-                           if (SETTINGS.orientation != menu.orientation) {
-                             applyOrientation(menu.orientation);
-                           }
-                           toggleAutoPageTurn(menu.pageTurnOption);
-                           if (!result.isCancelled) {
-                             onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
-                           }
-                         });
+  startActivityForResult(
+      std::make_unique<EpubReaderMenuActivity>(renderer, mappedInput, epub->getTitle(), currentPage, totalPages,
+                                               bookProgressPercent, SETTINGS.orientation, !currentPageFootnotes.empty(),
+                                               !cachedBookmarks.empty(), totalReadingSeconds()),
+      [this](const ActivityResult& result) {
+        const auto& menu = std::get<MenuResult>(result.data);
+        if (SETTINGS.orientation != menu.orientation) {
+          applyOrientation(menu.orientation);
+        }
+        toggleAutoPageTurn(menu.pageTurnOption);
+        if (!result.isCancelled) {
+          onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
+        }
+      });
 }
 
 bool EpubReaderActivity::buildTickHeapGate() {
@@ -1746,9 +1746,9 @@ void EpubReaderActivity::renderStatusBar() const {
 // ---------------------------------------------------------------------------
 
 namespace {
-constexpr StrId kTextRowNames[] = {StrId::STR_FONT, StrId::STR_FONT_SIZE, StrId::STR_LINE_SPACING,
-                                   StrId::STR_PARA_ALIGNMENT, StrId::STR_FOCUS_READING,
-                                   StrId::STR_PARAGRAPH_INDENT, StrId::STR_CHARACTER_WRAP};
+constexpr StrId kTextRowNames[] = {StrId::STR_FONT,           StrId::STR_FONT_SIZE,     StrId::STR_LINE_SPACING,
+                                   StrId::STR_PARA_ALIGNMENT, StrId::STR_FOCUS_READING, StrId::STR_PARAGRAPH_INDENT,
+                                   StrId::STR_CHARACTER_WRAP};
 constexpr StrId kSpacingIds[] = {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE, StrId::STR_EXTRA_WIDE};
 constexpr StrId kAlignIds[] = {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
                                StrId::STR_BOOK_S_STYLE};
@@ -2140,9 +2140,9 @@ void EpubReaderActivity::handleOverlayInput() {
                                  requestUpdate();                    // re-render page + Text panel
                                });
       } else if (panelIndex >= 4 && panelIndex <= 6) {
-        uint8_t* setting = panelIndex == 4 ? &SETTINGS.focusReadingEnabled
-                            : panelIndex == 5 ? &SETTINGS.paragraphIndent
-                                              : &SETTINGS.characterWrap;
+        uint8_t* setting = panelIndex == 4   ? &SETTINGS.focusReadingEnabled
+                           : panelIndex == 5 ? &SETTINGS.paragraphIndent
+                                             : &SETTINGS.characterWrap;
         *setting = *setting ? 0 : 1;
         applyTextSettingLive();
       } else {

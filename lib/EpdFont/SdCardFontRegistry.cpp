@@ -66,10 +66,9 @@ bool SdCardFontRegistry::parseFilename(const char* filename, uint8_t& size, uint
   static constexpr char kCpExt[] = ".cpfont";
   static constexpr char kLegacyExt[] = ".epdfont";
   const size_t nameLen = strlen(filename);
-  const bool cpfont = nameLen > sizeof(kCpExt) - 1 &&
-                      strcmp(filename + nameLen - (sizeof(kCpExt) - 1), kCpExt) == 0;
-  const bool legacy = nameLen > sizeof(kLegacyExt) - 1 &&
-                      strcmp(filename + nameLen - (sizeof(kLegacyExt) - 1), kLegacyExt) == 0;
+  const bool cpfont = nameLen > sizeof(kCpExt) - 1 && strcmp(filename + nameLen - (sizeof(kCpExt) - 1), kCpExt) == 0;
+  const bool legacy =
+      nameLen > sizeof(kLegacyExt) - 1 && strcmp(filename + nameLen - (sizeof(kLegacyExt) - 1), kLegacyExt) == 0;
   if (!cpfont && !legacy) return false;
   const char* ext = filename + nameLen - (cpfont ? sizeof(kCpExt) - 1 : sizeof(kLegacyExt) - 1);
 
@@ -206,8 +205,7 @@ void SdCardFontRegistry::scanRoot(const char* rootPath, std::vector<SdCardFontFa
       entry.getName(nameBuffer, sizeof(nameBuffer));
       entry.close();
       uint8_t size, style;
-      if (!SdCardFontRegistry::parseFilename(nameBuffer, size, style) ||
-          !strstr(nameBuffer, ".epdfont")) continue;
+      if (!SdCardFontRegistry::parseFilename(nameBuffer, size, style) || !strstr(nameBuffer, ".epdfont")) continue;
       SdCardFontFamilyInfo family;
       family.name.assign(nameBuffer, strlen(nameBuffer) - strlen(".epdfont"));
       family.files.reserve(1);

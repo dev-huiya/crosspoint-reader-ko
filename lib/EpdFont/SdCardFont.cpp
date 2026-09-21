@@ -596,83 +596,83 @@ bool SdCardFont::load(const char* path) {
     styleCount_ = 1;
     contentHash_ = fnv1a(headerBuf, HEADER_SIZE);
   } else {
-  if (memcmp(headerBuf, CPFONT_MAGIC, 8) != 0) {
-    LOG_ERR("SDCF", "Invalid magic bytes");
-    return false;
-  }
-
-  uint16_t fileVersion = readU16(headerBuf + 8);
-  if (fileVersion != CPFONT_VERSION) {
-    LOG_ERR("SDCF", "Unsupported version: %u (expected %u)", fileVersion, CPFONT_VERSION);
-    return false;
-  }
-
-  // Begin content hash: accumulate global header
-  uint32_t hash = fnv1a(headerBuf, HEADER_SIZE);
-
-  bool is2Bit = (readU16(headerBuf + 10) & 1) != 0;
-
-  uint8_t styleCount = headerBuf[12];
-  if (styleCount == 0 || styleCount > MAX_STYLES) {
-    LOG_ERR("SDCF", "Invalid style count: %u", styleCount);
-    return false;
-  }
-
-  // Read style TOC
-  for (uint8_t i = 0; i < styleCount; i++) {
-    uint8_t tocBuf[STYLE_TOC_ENTRY_SIZE];
-    if (file.read(tocBuf, STYLE_TOC_ENTRY_SIZE) != STYLE_TOC_ENTRY_SIZE) {
-      LOG_ERR("SDCF", "Failed to read style TOC entry %u", i);
-      freeAll();
+    if (memcmp(headerBuf, CPFONT_MAGIC, 8) != 0) {
+      LOG_ERR("SDCF", "Invalid magic bytes");
       return false;
     }
 
-    // Accumulate TOC entry into content hash
-    hash = fnv1a(tocBuf, STYLE_TOC_ENTRY_SIZE, hash);
-
-    uint8_t styleId = tocBuf[0];
-    if (styleId >= MAX_STYLES) {
-      LOG_ERR("SDCF", "Invalid styleId %u in TOC", styleId);
-      file.close();
-      freeAll();
+    uint16_t fileVersion = readU16(headerBuf + 8);
+    if (fileVersion != CPFONT_VERSION) {
+      LOG_ERR("SDCF", "Unsupported version: %u (expected %u)", fileVersion, CPFONT_VERSION);
       return false;
     }
 
-    auto& s = styles_[styleId];
-    s.present = true;
-    s.header.intervalCount = readU32(tocBuf + 4);
-    s.header.glyphCount = readU32(tocBuf + 8);
-    s.header.advanceY = tocBuf[12];
-    s.header.ascender = readI16(tocBuf + 13);
-    s.header.descender = readI16(tocBuf + 15);
-    s.header.kernLeftEntryCount = readU16(tocBuf + 17);
-    s.header.kernRightEntryCount = readU16(tocBuf + 19);
-    s.header.kernLeftClassCount = tocBuf[21];
-    s.header.kernRightClassCount = tocBuf[22];
-    s.header.ligaturePairCount = tocBuf[23];
-    s.header.is2Bit = is2Bit;
+    // Begin content hash: accumulate global header
+    uint32_t hash = fnv1a(headerBuf, HEADER_SIZE);
 
-    // Sanity-check counts to reject malformed files before allocating.
-    // Kern class counts are uint8 (bounded by type). Entry counts are uint16
-    // but in practice a sane font has far fewer than 4096 per-side kern entries.
-    static constexpr uint32_t MAX_INTERVALS = 4096;
-    static constexpr uint32_t MAX_GLYPHS = 65536;
-    static constexpr uint32_t MAX_KERN_ENTRIES = 4096;
-    if (s.header.intervalCount > MAX_INTERVALS || s.header.glyphCount > MAX_GLYPHS ||
-        s.header.kernLeftEntryCount > MAX_KERN_ENTRIES || s.header.kernRightEntryCount > MAX_KERN_ENTRIES) {
-      LOG_ERR("SDCF", "Style %u: unreasonable counts (iv=%u, gl=%u, kL=%u, kR=%u)", styleId, s.header.intervalCount,
-              s.header.glyphCount, s.header.kernLeftEntryCount, s.header.kernRightEntryCount);
-      file.close();
-      freeAll();
+    bool is2Bit = (readU16(headerBuf + 10) & 1) != 0;
+
+    uint8_t styleCount = headerBuf[12];
+    if (styleCount == 0 || styleCount > MAX_STYLES) {
+      LOG_ERR("SDCF", "Invalid style count: %u", styleCount);
       return false;
     }
 
-    uint32_t dataOffset = readU32(tocBuf + 24);
-    computeStyleFileOffsets(s, dataOffset);
-  }
+    // Read style TOC
+    for (uint8_t i = 0; i < styleCount; i++) {
+      uint8_t tocBuf[STYLE_TOC_ENTRY_SIZE];
+      if (file.read(tocBuf, STYLE_TOC_ENTRY_SIZE) != STYLE_TOC_ENTRY_SIZE) {
+        LOG_ERR("SDCF", "Failed to read style TOC entry %u", i);
+        freeAll();
+        return false;
+      }
 
-  styleCount_ = styleCount;
-  contentHash_ = hash;
+      // Accumulate TOC entry into content hash
+      hash = fnv1a(tocBuf, STYLE_TOC_ENTRY_SIZE, hash);
+
+      uint8_t styleId = tocBuf[0];
+      if (styleId >= MAX_STYLES) {
+        LOG_ERR("SDCF", "Invalid styleId %u in TOC", styleId);
+        file.close();
+        freeAll();
+        return false;
+      }
+
+      auto& s = styles_[styleId];
+      s.present = true;
+      s.header.intervalCount = readU32(tocBuf + 4);
+      s.header.glyphCount = readU32(tocBuf + 8);
+      s.header.advanceY = tocBuf[12];
+      s.header.ascender = readI16(tocBuf + 13);
+      s.header.descender = readI16(tocBuf + 15);
+      s.header.kernLeftEntryCount = readU16(tocBuf + 17);
+      s.header.kernRightEntryCount = readU16(tocBuf + 19);
+      s.header.kernLeftClassCount = tocBuf[21];
+      s.header.kernRightClassCount = tocBuf[22];
+      s.header.ligaturePairCount = tocBuf[23];
+      s.header.is2Bit = is2Bit;
+
+      // Sanity-check counts to reject malformed files before allocating.
+      // Kern class counts are uint8 (bounded by type). Entry counts are uint16
+      // but in practice a sane font has far fewer than 4096 per-side kern entries.
+      static constexpr uint32_t MAX_INTERVALS = 4096;
+      static constexpr uint32_t MAX_GLYPHS = 65536;
+      static constexpr uint32_t MAX_KERN_ENTRIES = 4096;
+      if (s.header.intervalCount > MAX_INTERVALS || s.header.glyphCount > MAX_GLYPHS ||
+          s.header.kernLeftEntryCount > MAX_KERN_ENTRIES || s.header.kernRightEntryCount > MAX_KERN_ENTRIES) {
+        LOG_ERR("SDCF", "Style %u: unreasonable counts (iv=%u, gl=%u, kL=%u, kR=%u)", styleId, s.header.intervalCount,
+                s.header.glyphCount, s.header.kernLeftEntryCount, s.header.kernRightEntryCount);
+        file.close();
+        freeAll();
+        return false;
+      }
+
+      uint32_t dataOffset = readU32(tocBuf + 24);
+      computeStyleFileOffsets(s, dataOffset);
+    }
+
+    styleCount_ = styleCount;
+    contentHash_ = hash;
   }
 
   // Load full intervals into RAM for each present style. BMP-only fonts with

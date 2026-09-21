@@ -29,7 +29,8 @@ inline Version parse(const char* text) {
     return true;
   };
   if (!readPart(version.major) || *text++ != '.' || !readPart(version.minor) || *text++ != '.' ||
-      !readPart(version.patch)) return version;
+      !readPart(version.patch))
+    return version;
   if (*text == '\0') {
     version.channel = 1;
   } else if (strncmp(text, "-ko.", 4) == 0) {
