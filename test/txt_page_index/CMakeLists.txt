@@ -1,0 +1,4 @@
+add_executable(TxtPageIndexTest TxtPageIndexTest.cpp)
+target_include_directories(TxtPageIndexTest PRIVATE ${REPO_ROOT}/src/activities/reader)
+target_link_libraries(TxtPageIndexTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(TxtPageIndexTest)

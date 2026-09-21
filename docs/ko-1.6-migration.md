@@ -211,8 +211,24 @@ languages stay available when character wrap is off.
 #### Phase 4 (continued) — TXT reader
 
 The 1.6 TXT reader is a streaming reader with a cached page index of byte
-offsets; KO 1.5's TXT reader was a separate implementation. The KO behaviour
-was ported onto the 1.6 structure rather than replacing it:
+offsets, built in full before the first page is drawn; KO 1.5's TXT reader
+navigated by byte offset with no whole-file pagination. The KO layout was
+ported onto the 1.6 structure first, then the 1.5 offset navigation was
+brought back because the up-front index made a 3 MB file take minutes to open:
+
+- Navigation (`TxtReaderActivity`): the page on screen is a byte offset; its
+  end (= the next page's start) falls out of rendering it. Back uses a
+  bounded history stack, then the page index, then a forward scan from an
+  estimated earlier position (KO 1.5's `findBackwardPageStart`). Percent
+  jumps are byte-based; page jumps use the index where it has reached and
+  bytes-per-page beyond. The first page is drawn as soon as the file opens.
+- Page index (`TxtPageIndex.h`, renderer-free): built in the background from
+  `loop()` under the render lock in 40 ms / 16-page ticks, the way the EPUB
+  reader's deferred section build runs, with `skipLoopDelay()` keeping the CPU
+  at full speed meanwhile. Page numbers are exact once the index has passed
+  the reader's position and estimated from the indexed average (or the first
+  rendered page) before that; the status bar marks the total as an estimate
+  (`pageCountEstimated`) until the index completes.
 
 - `src/activities/reader/TxtLineBreak.h`: renderer-free line breaking. With
   character wrap on, a line breaks on the last fitting character (binary search
@@ -233,12 +249,20 @@ was ported onto the 1.6 structure rather than replacing it:
   menu's step. With the long-press button setting off, page turns move to the
   release while a step is active (press-to-turn cannot measure a hold).
 - Progress: `progress.bin` is page (2 bytes, the 1.6 layout) + 2 zero bytes +
-  the page's byte offset (4 bytes). A 1.6 four-byte file still loads; the
-  offset restores the position after a text-setting re-pagination.
-- Index cache: `CACHE_VERSION` 4 (1.6 wrote 3), keyed additionally on viewport
-  height, line height, the wrap/indent/spacing flags and the indent width.
+  the byte offset (4 bytes); the offset is the position, the page number is
+  for upstream builds. A KO 1.5 `TXTP` v2 file (41 bytes, offset at the end)
+  is read as well, so a card coming from 1.5 keeps its positions. A 1.6
+  four-byte file names only a page; the reader starts at the top and jumps
+  there once the background index reaches it, unless the user has moved on.
+- Index cache: `CACHE_VERSION` 5 (1.6 wrote 3, the first KO port 4), keyed
+  additionally on viewport height, line height, the wrap/indent/spacing flags
+  and the indent width, and holding a `complete` flag + `indexedEnd` so a
+  partial index (saved every 200 pages, on exit and on a layout change)
+  resumes where it stopped.
 - Tests: `test/txt_line_break` (5 cases: no glyph lost, no UTF-8 split, no
-  line over width, word-wrap fallback, codepoint count). Host suite 201/201.
+  line over width, word-wrap fallback, codepoint count) and
+  `test/txt_page_index` (7 cases: fresh/partial/complete coverage, estimates,
+  page number never past the total).
 - Battery calibration: not ported, see the inventory (follow the 1.6 SDK).
 
 ### Phase 5 — OTA, release, size, cache
