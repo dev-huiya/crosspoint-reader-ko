@@ -2,32 +2,13 @@
 #include <GfxRenderer.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
 #include <string>
-#include <array>
 
 #include "Epub/parsers/ChapterHtmlSlimParser.h"
 #include "LayoutCapture.h"
-
-struct ChapterHtmlSlimParserTestAccess {
-  static void resetText(ChapterHtmlSlimParser& parser) { parser.currentTextBlock = std::make_unique<ParsedText>(false); }
-  static ParsedText& text(ChapterHtmlSlimParser& parser) { return *parser.currentTextBlock; }
-  static uint8_t linkId(const ChapterHtmlSlimParser& parser) { return parser.currentFootnoteLinkId; }
-  static const auto& footnotes(const ChapterHtmlSlimParser& parser) { return parser.pendingFootnotes; }
-  static void start(ChapterHtmlSlimParser& parser, const XML_Char* name, const XML_Char** attributes) {
-    ChapterHtmlSlimParser::startElement(&parser, name, attributes);
-  }
-  static void characters(ChapterHtmlSlimParser& parser, const XML_Char* data, int length) {
-    ChapterHtmlSlimParser::characterData(&parser, data, length);
-  }
-  static void end(ChapterHtmlSlimParser& parser, const XML_Char* name) {
-    ChapterHtmlSlimParser::endElement(&parser, name);
-  }
-};
-
-struct ParsedTextTestAccess {
-  static const auto& linkIds(const ParsedText& text) { return text.wordLinkIds; }
-};
+#include "ParserTestAccess.h"
 
 namespace {
 

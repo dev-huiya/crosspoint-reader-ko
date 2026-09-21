@@ -1,5 +1,6 @@
 add_executable(ChapterHtmlSlimParserTest
   ChapterHtmlSlimParserTest.cpp
+  KoreanParserLayoutTest.cpp
   ParserLinkStubs.cpp
   ${REPO_ROOT}/lib/Epub/Epub/parsers/ChapterHtmlSlimParser.cpp
   ${REPO_ROOT}/lib/Epub/Epub/css/CssParser.cpp
