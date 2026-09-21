@@ -125,11 +125,15 @@ positions. Its language codes and display names no longer require every layout
 language to be compiled into the firmware translation enum. The two-language
 build therefore compiles without changing saved layout masks.
 
-Before flashing hardware, run host tests, layout and golden tests, desktop
-navigation and EPUB rendering, both firmware builds, and a partition-specific
-size check. The desktop emulator cannot validate e-ink waveforms, electrical
-touch behavior, SD timing, WiFi heap pressure, deep-sleep current, battery
-hardware, USB electrical behavior, or the watchdog.
+Before flashing hardware, run the host tests (including the Korean layout
+suites), both firmware builds, and a partition-specific size check.
+
+The Windows desktop emulator that the work order describes was prototyped on
+this branch (a Win32 host backend running the real ActivityManager, reader
+and fonts; kept on `backup/desktop-emulator`) and then dropped by decision on
+2026-09-21 to concentrate on the firmware itself. Its one lasting result is
+the built-in font coverage fix below: rendering the Hanja fixture on the host
+showed kana and KS X 1001 symbols vanishing from the page.
 
 ## OTA
 
