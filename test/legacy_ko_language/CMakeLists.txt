@@ -1,0 +1,4 @@
+add_executable(LegacyKoLanguageTest LegacyKoLanguageTest.cpp)
+target_include_directories(LegacyKoLanguageTest PRIVATE ${REPO_ROOT}/src)
+target_link_libraries(LegacyKoLanguageTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(LegacyKoLanguageTest)

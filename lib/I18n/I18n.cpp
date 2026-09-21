@@ -46,14 +46,14 @@ Language I18n::languageFromCode(const char* code) {
   for (uint8_t i = 0; i < getLanguageCount(); i++) {
     if (strcmp(code, LANGUAGE_CODES[i]) == 0) return static_cast<Language>(i);
   }
-  return Language::EN;
+  return Language::KOREAN;
 }
 
 // Generate character set for a specific language
 const char* I18n::getCharacterSet(Language lang) {
   const auto langIndex = static_cast<size_t>(lang);
   if (langIndex >= static_cast<size_t>(Language::_COUNT)) {
-    lang = Language::EN;  // Fallback to first language
+    lang = Language::KOREAN;
   }
 
   return CHARACTER_SETS[static_cast<size_t>(lang)];

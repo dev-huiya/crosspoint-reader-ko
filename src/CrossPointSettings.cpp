@@ -103,7 +103,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
 
   // Language -- managed by LanguageSelectActivity, not in SettingsList.
   // Stored as ISO code string ("EN", "DE", ...) for stability across enum reorders.
-  doc["language"] = (language < getLanguageCount()) ? LANGUAGE_CODES[language] : "EN";
+  doc["language"] = (language < getLanguageCount()) ? LANGUAGE_CODES[language] : "KOREAN";
 
   // A uint16_t mask, so it does not fit the uint8_t generic loop. Omitted while
   // unconfigured, so the default keeps following the UI language.
