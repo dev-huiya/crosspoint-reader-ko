@@ -23,6 +23,7 @@
 #include "SdCardFontSystem.h"
 #include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
+#include "SleepImageSelectionActivity.h"
 #include "StatusBarSettingsActivity.h"
 #include "TextSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -93,6 +94,13 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts));
+  // Right after the sleep screen mode it narrows.
+  {
+    auto it = std::find_if(displaySettings.begin(), displaySettings.end(),
+                           [](const SettingInfo& s) { return s.nameId == StrId::STR_SLEEP_SCREEN; });
+    displaySettings.insert(it == displaySettings.end() ? it : it + 1,
+                           SettingInfo::Action(StrId::STR_SELECT_SLEEP_SCREENS, SettingAction::SleepImages));
+  }
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_TEXT_SETTINGS, SettingAction::TextSettings));
   readerSettings.insert(readerSettings.begin() + 1,
@@ -380,6 +388,13 @@ void SettingsActivity::toggleCurrentSetting() {
           startActivityForResult(std::move(activity), nullptr);
         } else {
           LOG_ERR("SETTINGS", "OOM: KeyboardLayoutsActivity");
+        }
+        break;
+      case SettingAction::SleepImages:
+        if (auto activity = makeUniqueNoThrow<SleepImageSelectionActivity>(renderer, mappedInput)) {
+          startActivityForResult(std::move(activity), nullptr);
+        } else {
+          LOG_ERR("SETTINGS", "OOM: SleepImageSelectionActivity");
         }
         break;
       case SettingAction::None:

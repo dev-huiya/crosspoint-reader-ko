@@ -23,6 +23,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "SleepImageSelectionStore.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -411,6 +412,18 @@ bool findNextValidSleepImage(HalFile& dir, const SleepRecentKind recentKind, cha
   return false;
 }
 
+// KO sleep image selection (SleepImageSelectionStore): the user may restrict
+// the standard rotation to a subset of /.sleep or /sleep. Overlays are never
+// filtered. The store keeps absolute paths, so the check rebuilds one.
+bool sleepImageSelected(const char* dirPath, const char* name) {
+  std::string fullPath;
+  fullPath.reserve(strlen(dirPath) + 1 + strlen(name));
+  fullPath = dirPath;
+  fullPath += '/';
+  fullPath += name;
+  return SLEEP_IMAGE_SELECTION.isSelected(fullPath);
+}
+
 bool selectRandomSleepFile(const char* dirPath, const SleepRecentKind recentKind, std::string& selectedPath) {
   auto dir = Storage.open(dirPath);
   if (!dir || !dir.isDirectory()) return false;
@@ -421,8 +434,22 @@ bool selectRandomSleepFile(const char* dirPath, const SleepRecentKind recentKind
     return false;
   }
 
+  // Count every valid image and, for the standard rotation, how many of them
+  // the user selected. A non-empty selection that matches nothing on this card
+  // falls back to every image rather than the default sleep screen.
+  bool useSelection = false;
+  if (recentKind == SleepRecentKind::Standard) {
+    SLEEP_IMAGE_SELECTION.loadFromFile();
+    useSelection = !SLEEP_IMAGE_SELECTION.empty();
+  }
   uint16_t fileCount = 0;
-  while (fileCount < UINT16_MAX && findNextValidSleepImage(dir, recentKind, name.get())) ++fileCount;
+  uint16_t selectedCount = 0;
+  while (fileCount < UINT16_MAX && findNextValidSleepImage(dir, recentKind, name.get())) {
+    ++fileCount;
+    if (useSelection && sleepImageSelected(dirPath, name.get())) ++selectedCount;
+  }
+  if (useSelection && selectedCount == 0) useSelection = false;
+  if (useSelection) fileCount = selectedCount;
   if (fileCount == 0) return false;
 
   // Pick a random wallpaper, excluding recently shown ones.
@@ -437,7 +464,9 @@ bool selectRandomSleepFile(const char* dirPath, const SleepRecentKind recentKind
 
   dir.rewindDirectory();
   for (uint16_t index = 0; index <= randomFileIndex; ++index) {
-    if (!findNextValidSleepImage(dir, recentKind, name.get())) return false;
+    do {
+      if (!findNextValidSleepImage(dir, recentKind, name.get())) return false;
+    } while (useSelection && !sleepImageSelected(dirPath, name.get()));
   }
 
   selectedPath.reserve(strlen(dirPath) + 1 + strlen(name.get()));
