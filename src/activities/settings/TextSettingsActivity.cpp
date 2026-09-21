@@ -25,7 +25,8 @@ namespace {
 constexpr StrId TAB_NAME_IDS[] = {StrId::STR_FONT, StrId::STR_SIZE, StrId::STR_LAYOUT, StrId::STR_STYLE};
 
 constexpr StrId LAYOUT_ROW_NAME_IDS[] = {StrId::STR_LINE_SPACING, StrId::STR_EXTRA_SPACING, StrId::STR_ALIGNMENT,
-                                         StrId::STR_SCREEN_MARGIN};
+                                         StrId::STR_SCREEN_MARGIN, StrId::STR_PARAGRAPH_INDENT,
+                                         StrId::STR_CHARACTER_WRAP};
 constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION, StrId::STR_EMBEDDED_STYLE,
                                         StrId::STR_TEXT_AA};
 
@@ -248,7 +249,11 @@ const char* TextSettingsActivity::confirmLabelText() const {
   switch (tab_) {
     case Tab::Layout:
       // Extra Paragraph Spacing toggles; the rest open a picker
-      return ringPos() - 1 == static_cast<int>(LayoutRow::ParaSpacing) ? tr(STR_TOGGLE) : tr(STR_SELECT);
+      return ringPos() - 1 == static_cast<int>(LayoutRow::ParaSpacing) ||
+                     ringPos() - 1 == static_cast<int>(LayoutRow::ParagraphIndent) ||
+                     ringPos() - 1 == static_cast<int>(LayoutRow::CharacterWrap)
+                 ? tr(STR_TOGGLE)
+                 : tr(STR_SELECT);
     case Tab::Style:
       return tr(STR_TOGGLE);
     default:
@@ -373,6 +378,16 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
       SETTINGS.saveToFile();
       requestUpdate();
       break;
+    case LayoutRow::ParagraphIndent:
+      SETTINGS.paragraphIndent = !SETTINGS.paragraphIndent;
+      SETTINGS.saveToFile();
+      requestUpdate();
+      break;
+    case LayoutRow::CharacterWrap:
+      SETTINGS.characterWrap = !SETTINGS.characterWrap;
+      SETTINGS.saveToFile();
+      requestUpdate();
+      break;
     case LayoutRow::LineSpacing:
       optionPopup_.show(StrId::STR_LINE_SPACING, LINE_SPACING_IDS, static_cast<int>(std::size(LINE_SPACING_IDS)),
                         SETTINGS.lineSpacing, [](int idx) {
@@ -415,6 +430,10 @@ std::string TextSettingsActivity::layoutValueText(int row) const {
     }
     case LayoutRow::ParaSpacing:
       return SETTINGS.extraParagraphSpacing ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+    case LayoutRow::ParagraphIndent:
+      return SETTINGS.paragraphIndent ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+    case LayoutRow::CharacterWrap:
+      return SETTINGS.characterWrap ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
     case LayoutRow::Alignment: {
       const uint8_t v = SETTINGS.paragraphAlignment;
       return v < std::size(ALIGNMENT_IDS) ? I18N.get(ALIGNMENT_IDS[v]) : I18N.get(StrId::STR_JUSTIFY);
@@ -468,7 +487,12 @@ std::string TextSettingsActivity::styleValueText(int row) const {
 // Only Focus Reading shows in the preview (bold prefixes); the other Style rows
 // have no distinct preview.
 bool TextSettingsActivity::focusedRowHasNoPreview() const {
-  if (ringPos() == 0 || tab_ != Tab::Style) return false;
+  if (ringPos() == 0) return false;
+  if (tab_ == Tab::Layout) {
+    const LayoutRow row = static_cast<LayoutRow>(ringPos() - 1);
+    return row == LayoutRow::ParagraphIndent || row == LayoutRow::CharacterWrap;
+  }
+  if (tab_ != Tab::Style) return false;
   const StyleRow row = static_cast<StyleRow>(ringPos() - 1);
   return row == StyleRow::Hyphenation || row == StyleRow::EmbeddedStyle || row == StyleRow::AntiAliasing;
 }

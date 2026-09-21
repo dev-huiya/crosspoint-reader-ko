@@ -662,7 +662,7 @@ void ParsedText::ensureRubyCapacity() {
 }
 
 int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer& renderer, const int fontId) const {
-  if (!isFirstLine || !isNaturalAlign) {
+  if (!isFirstLine || paragraphIndentApplied || !isNaturalAlign) {
     return 0;
   }
   if (blockStyle.textIndentDefined) {
@@ -670,6 +670,9 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
       return blockStyle.textIndent;
     }
     return 0;
+  }
+  if (paragraphIndent) {
+    return renderer.getTextWidth(fontId, "\xE3\x80\x80");  // U+3000 ideographic space
   }
   if (!extraParagraphSpacing) {
     return renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR) * 3;
@@ -735,6 +738,9 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
     extractLine(i, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore, lineBreakIndices, processLine, renderer,
                 fontId);
   }
+  // A soft flush retains its incomplete last line. Mark indentation only after
+  // the first line has actually been emitted and its tokens can be consumed.
+  if (lineCount > 0) paragraphIndentApplied = true;
 
   // Remove consumed words so size() reflects only remaining words
   if (lineCount > 0) {
@@ -1323,9 +1329,12 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   // For justified text, compute per-gap extra to distribute remaining space evenly.
   // extraEndOffset reserves space for any ruby group at the right edge of the line.
   const int spareSpace = effectivePageWidth - extraStartOffset - extraEndOffset - lineWordWidthSum - totalNaturalGaps;
-  const int justifyExtra = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
-                               ? computeJustifyExtra(spareSpace, actualGapCount)
-                               : 0;
+  int justifyExtra = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
+                         ? computeJustifyExtra(spareSpace, actualGapCount)
+                         : 0;
+  if (characterWrap) {
+    justifyExtra = std::min(justifyExtra, renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR) / 2);
+  }
 
   // BiDi processing: reorder words with UAX#9 in full-line context.
   visualOrderScratch.clear();
@@ -1405,9 +1414,13 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
 
     const int reorderedSpare =
         effectivePageWidth - extraStartOffset - extraEndOffset - reorderedWordWidthSum - reorderedNaturalGaps;
-    const int reorderedJustifyExtra = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
-                                          ? computeJustifyExtra(reorderedSpare, reorderedGapCount)
-                                          : 0;
+    int reorderedJustifyExtra = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
+                                    ? computeJustifyExtra(reorderedSpare, reorderedGapCount)
+                                    : 0;
+    if (characterWrap) {
+      reorderedJustifyExtra = std::min(reorderedJustifyExtra,
+                                       renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR) / 2);
+    }
 
     const int justifyContribution = (effectiveAlignment == CssTextAlign::Justify && !isLastLine)
                                         ? reorderedJustifyExtra * static_cast<int>(reorderedGapCount)

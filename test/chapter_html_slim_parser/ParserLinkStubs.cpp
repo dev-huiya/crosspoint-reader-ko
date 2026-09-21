@@ -7,6 +7,10 @@
 #include <Epub/hyphenation/Hyphenator.h>
 #include <GfxRenderer.h>
 
+#include "LayoutCapture.h"
+
+std::vector<CapturedLayoutLine> capturedLayoutLines;
+
 const char* lookupHtmlEntity(const char*, size_t) { return nullptr; }
 
 #include <BidiUtils.h>
@@ -25,11 +29,13 @@ bool computeVisualWordOrder(const std::vector<std::string>& words, bool, std::ve
 }
 }  // namespace BidiUtils
 
-TextBlock::TextBlock(const std::vector<std::string>&, const std::vector<int16_t>&,
+TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>& x,
                      const std::vector<EpdFontFamily::Style>&, const std::vector<uint8_t>&,
                      const std::vector<uint16_t>&, const BlockStyle& blockStyle, std::vector<std::string> rubyTexts,
                      std::vector<LinkSpan> linkSpans)
-    : blockStyle(blockStyle), rubyTexts(std::move(rubyTexts)), linkSpans(std::move(linkSpans)) {}
+    : blockStyle(blockStyle), rubyTexts(std::move(rubyTexts)), linkSpans(std::move(linkSpans)) {
+  capturedLayoutLines.push_back({words, x});
+}
 
 bool TextBlock::hasRuby() const { return false; }
 

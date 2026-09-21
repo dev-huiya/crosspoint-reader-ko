@@ -1744,7 +1744,8 @@ void EpubReaderActivity::renderStatusBar() const {
 
 namespace {
 constexpr StrId kTextRowNames[] = {StrId::STR_FONT, StrId::STR_FONT_SIZE, StrId::STR_LINE_SPACING,
-                                   StrId::STR_PARA_ALIGNMENT, StrId::STR_FOCUS_READING};
+                                   StrId::STR_PARA_ALIGNMENT, StrId::STR_FOCUS_READING,
+                                   StrId::STR_PARAGRAPH_INDENT, StrId::STR_CHARACTER_WRAP};
 constexpr StrId kSpacingIds[] = {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE, StrId::STR_EXTRA_WIDE};
 constexpr StrId kAlignIds[] = {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
                                StrId::STR_BOOK_S_STYLE};
@@ -1786,6 +1787,10 @@ std::string EpubReaderActivity::textRowValue(int row) const {
       return I18N.get(kAlignIds[SETTINGS.paragraphAlignment % CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT]);
     case 4:
       return SETTINGS.focusReadingEnabled ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+    case 5:
+      return SETTINGS.paragraphIndent ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+    case 6:
+      return SETTINGS.characterWrap ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
     default:
       return "";
   }
@@ -2131,9 +2136,11 @@ void EpubReaderActivity::handleOverlayInput() {
                                  if (toolbarUi) toolbarUi->begin();  // the picker drew its own FUI screen
                                  requestUpdate();                    // re-render page + Text panel
                                });
-      } else if (panelIndex == 4) {
-        // Focus Reading is a genuine on/off: a tap toggles and applies live.
-        SETTINGS.focusReadingEnabled = SETTINGS.focusReadingEnabled ? 0 : 1;
+      } else if (panelIndex >= 4 && panelIndex <= 6) {
+        uint8_t* setting = panelIndex == 4 ? &SETTINGS.focusReadingEnabled
+                            : panelIndex == 5 ? &SETTINGS.paragraphIndent
+                                              : &SETTINGS.characterWrap;
+        *setting = *setting ? 0 : 1;
         applyTextSettingLive();
       } else {
         // Enum rows open the Settings-style option picker.

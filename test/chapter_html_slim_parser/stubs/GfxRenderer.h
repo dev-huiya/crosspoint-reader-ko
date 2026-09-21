@@ -17,6 +17,9 @@ class GfxRenderer {
     while (*text++) width += 8;
     return width;
   }
+  int getTextWidth(int, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const {
+    return getTextAdvanceX(0, text, style);
+  }
   int getKerning(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 0; }
   int getSpaceAdvance(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 4; }
   bool isSdCardFont(int) const { return false; }
