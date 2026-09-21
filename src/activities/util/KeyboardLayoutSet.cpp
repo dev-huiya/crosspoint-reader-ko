@@ -2,6 +2,8 @@
 
 #include "CrossPointSettings.h"
 
+#include <cstring>
+
 namespace keyboard_layouts {
 
 namespace {
@@ -14,8 +16,11 @@ uint8_t indexOf(const freeink::ui::KeyboardLayoutId id) {
 }
 
 freeink::ui::KeyboardLayoutId forLanguage(const Language language) {
+  const auto languageIndex = static_cast<uint8_t>(language);
+  if (languageIndex >= static_cast<uint8_t>(Language::_COUNT)) return freeink::ui::KeyboardLayoutId::QwertyEn;
+  const char* code = LANGUAGE_CODES[languageIndex];
   for (uint8_t i = 0; i < COUNT; ++i) {
-    if (ALL[i].language == language) return ALL[i].id;
+    if (strcmp(ALL[i].languageCode, code) == 0) return ALL[i].id;
   }
   return freeink::ui::KeyboardLayoutId::QwertyEn;
 }

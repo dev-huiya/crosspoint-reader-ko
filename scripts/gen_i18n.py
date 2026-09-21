@@ -115,6 +115,7 @@ def parse_yaml_file(filepath: str) -> Dict[str, str]:
 def load_translations(
     translations_dir: str,
     verbose: bool = False,
+    included_codes: Optional[List[str]] = None,
 ) -> Tuple[List[str], List[str], List[str], List[str], Dict[str, List[str]], List[Set[str]]]:
     """
     Read every YAML file in *translations_dir* and return:
@@ -175,6 +176,18 @@ def load_translations(
 
     _check_unique("_order")
     _check_unique("_bcp47")
+
+    # The KO firmware embeds only English and Korean to conserve flash. Keep
+    # every upstream YAML file in the repository so later upstream updates can
+    # still be merged without deleting and re-adding translation sources.
+    if included_codes is not None:
+        selected = set(included_codes)
+        selected.add("EN")
+        known = {data.get("_language_code") for data in parsed.values()}
+        missing = selected - known
+        if missing:
+            raise ValueError(f"Unknown language code(s): {', '.join(sorted(missing))}")
+        parsed = {name: data for name, data in parsed.items() if data.get("_language_code") in selected}
 
     # Order: English first (enum value 0), then by _bcp47 tag alphabetically.
     # This assigns the Language enum ordinal and also drives the visible
@@ -560,15 +573,16 @@ def generate_keys_header(
 
     # V1 language.bin migration table -- frozen enum order from commit 2f969a9.
     # Maps the old uint8_t index stored on disk to the current Language enum.
-    # If a Language enum value listed here is ever removed, this will fail to
-    # compile, signalling that the migration table needs updating.
+    # A removed language maps to Korean in the KO build, so a legacy index
+    # never becomes an unrelated language after the firmware shrinks to ko/en.
     v1_codes = [
         "EN", "ES", "FR", "DE", "CS", "PT", "RU", "SV", "RO", "CA", "UK",
         "BE", "IT", "PL", "FI", "DA", "NL", "TR", "KK", "HU", "LT", "SI",
     ]
+    v1_fallback = "KOREAN" if "KOREAN" in languages else "EN"
     lines.append("// V1 language.bin migration table (frozen enum order from 2f969a9)")
     lines.append("constexpr Language V1_LANGUAGES[] = {")
-    lines.append("    " + ", ".join(f"Language::{c}" for c in v1_codes) + ",")
+    lines.append("    " + ", ".join(f"Language::{c if c in languages else v1_fallback}" for c in v1_codes) + ",")
     lines.append("};")
     lines.append(
         f"constexpr uint8_t V1_LANGUAGE_COUNT = {len(v1_codes)};"
@@ -834,6 +848,7 @@ def main(
     src_dirs: Optional[List[str]] = None,
     strip_unused: bool = False,
     verbose: bool = False,
+    included_codes: Optional[List[str]] = None,
 ) -> None:
     # Default paths (relative to project root)
     default_translations_dir = "lib/I18n/translations"
@@ -867,7 +882,7 @@ def main(
 
     try:
         languages, language_names, language_bcp47, string_keys, translations, inherited_sets = (
-            load_translations(translations_dir, verbose)
+            load_translations(translations_dir, verbose, included_codes)
         )
 
         # --- Unused-string detection ---
@@ -988,6 +1003,12 @@ if __name__ == "__main__":
         help="Source directories to scan for STR_* usage (default: src lib)",
     )
     parser.add_argument(
+        "--languages",
+        nargs="+",
+        metavar="CODE",
+        help="Embed only these language codes (English is always included)",
+    )
+    parser.add_argument(
         "--strip-unused",
         action="store_true",
         help="Remove unused STR_* keys from the generated output",
@@ -1005,10 +1026,11 @@ if __name__ == "__main__":
         args.src_dirs,
         args.strip_unused,
         args.verbose,
+        args.languages,
     )
 else:
     try:
         Import("env")
-        main(strip_unused=True)
+        main(strip_unused=True, included_codes=["EN", "KOREAN"])
     except NameError:
         pass

@@ -25,6 +25,7 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#include "LegacyKoLanguage.h"
 #include "CrossPointState.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
@@ -53,6 +54,11 @@ static unsigned long lastX4ProPowerClickAt = 0;
 namespace {
 constexpr unsigned long X4PRO_POWER_DOUBLE_CLICK_MS = 500;
 constexpr unsigned long X4PRO_POWER_CLICK_MAX_HOLD_MS = 300;
+
+void restoreLegacyKoLanguage() {
+  const LegacyKoLanguage saved = decodeLegacyKoLanguage(bytes[0], bytes[1]);
+  if (saved == LegacyKoLanguage::Unknown) return;
+  SETTINGS.language = static_cast<uint8_t>(saved == LegacyKoLanguage::English ? Language::EN : Language::KOREAN);
 }  // namespace
 
 // A wake hold must never become an in-app power-button action.  Boot may continue
@@ -423,6 +429,7 @@ void setup() {
     SETTINGS.readerMenuStyle = CrossPointSettings::READER_MENU_TOOLBAR;
   }
   SETTINGS.loadFromFile();
+  restoreLegacyKoLanguage();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();

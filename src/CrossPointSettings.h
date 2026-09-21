@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include <Epub/ReaderRenderSpec.h>
 #include <PersistableStore.h>
+#include <I18nKeys.h>
 
 #include <cstdint>
 
@@ -319,6 +320,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontlightRestoreOnWake = 1;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
+  uint8_t language = static_cast<uint8_t>(Language::KOREAN);
   // Keyboard layouts the user can reach, using keyboard_layouts::ALL table bits.
   // 0 means "not configured", resolved to the UI language's layout plus English.
   // Any other value is an explicit choice and is used as-is: the language of the
