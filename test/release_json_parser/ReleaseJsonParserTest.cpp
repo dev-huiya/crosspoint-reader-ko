@@ -15,6 +15,18 @@ TEST(KoReleaseVersion, ComparesKoRevisionsAndRejectsMalformedTags) {
   EXPECT_FALSE(ko_release::isNewer("1.6.0-ko.bad", "1.6.0-ko.1"));
 }
 
+// Board and development builds carry a suffix after the KO revision; they are
+// development builds of that version, so the matching KO release supersedes
+// them while the release itself is never "newer" than itself.
+TEST(KoReleaseVersion, TreatsSuffixedKoBuildsAsDevelopment) {
+  EXPECT_TRUE(ko_release::isNewer("1.6.0-ko.0", "1.6.0-ko.0-x4pro"));
+  EXPECT_TRUE(ko_release::isNewer("1.6.0-ko.0", "1.6.0-ko.0-dev-release-1.6.0-ko-1a2b3c4"));
+  EXPECT_TRUE(ko_release::isNewer("1.6.0-ko.0", "1.6.0-ko.0-rc+1a2b3c4"));
+  EXPECT_FALSE(ko_release::isNewer("1.6.0-ko.0", "1.6.0-ko.0"));
+  EXPECT_FALSE(ko_release::isNewer("1.6.0-ko.0-x4pro", "1.6.0-ko.0"));
+  EXPECT_FALSE(ko_release::isNewer("1.6.0-ko.0x", "1.6.0-ko.0"));
+}
+
 namespace {
 
 const char* kRealisticPretty = R"({

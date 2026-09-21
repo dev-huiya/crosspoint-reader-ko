@@ -33,6 +33,11 @@ jobs:
         with:
           submodules: recursive
 
+      # KO releases are tagged 1.6.0-ko.N; the firmware reports that exact
+      # string so OtaUpdater's KO version compare sees the release channel.
+      - name: Set version from tag
+        run: sed -i "s/^version = .*/version = ${{ github.ref_name }}/" platformio.ini
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'

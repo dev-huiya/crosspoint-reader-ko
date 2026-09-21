@@ -35,8 +35,17 @@ inline Version parse(const char* text) {
     version.channel = 1;
   } else if (strncmp(text, "-ko.", 4) == 0) {
     text += 4;
-    if (!readPart(version.koRevision) || *text != '\0') return version;
-    version.channel = 2;
+    if (!readPart(version.koRevision)) return version;
+    if (*text == '\0') {
+      version.channel = 2;
+    } else if (*text == '-' || *text == '+') {
+      // "1.6.0-ko.1-x4pro", "1.6.0-ko.1-dev-branch-sha", "1.6.0-ko.1-rc+hash":
+      // a development or board-suffixed build of that KO version, which every
+      // published KO release of the same base version supersedes.
+      version.channel = 0;
+    } else {
+      return version;
+    }
   } else if (*text == '-') {
     version.channel = 0;
   } else {
