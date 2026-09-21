@@ -29,11 +29,13 @@ COMMON_INTERVALS = (
 )
 
 
-def generate(name: str, size: int, source: Path, extra_intervals=()) -> None:
+def generate(name: str, size: int, source: Path, extra_intervals=(), compress: bool = True) -> None:
     intervals = (*COMMON_INTERVALS, *extra_intervals)
     # Relative paths: the converter records its command line in the header.
     args = [sys.executable, str(CONVERTER.relative_to(ROOT)).replace("\\", "/"), name, str(size),
-            str(source.relative_to(ROOT)).replace("\\", "/"), "--2bit", "--compress"]
+            str(source.relative_to(ROOT)).replace("\\", "/"), "--2bit"]
+    if compress:
+        args.append("--compress")
     for interval in intervals:
         args.extend(("--additional-intervals", interval))
     target = FONT_DIR / f"{name}.h"
@@ -49,8 +51,15 @@ if __name__ == "__main__":
         FONT_DIR / "source/KoPub-Batang/KoPub Batang Light.ttf",
         ("0x4E00,0x9FFF",),  # Hanja supplied by KoPub
     )
+    # The UI font stays uncompressed. UI screens draw without the reader's
+    # prewarm scope, so a compressed font serves them from a single hot group:
+    # every Hangul glyph that lands in a different DEFLATE group re-inflates
+    # that group (29 groups for this font), which made Korean menus crawl
+    # while English ones, whose glyphs share one group, stayed fast. Upstream
+    # keeps its UI font (Ubuntu) uncompressed for the same reason.
     generate(
         "pretendard_10_regular",
         10,
         FONT_DIR / "source/Pretendard/Pretendard-Regular.ttf",
+        compress=False,
     )
