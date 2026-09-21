@@ -81,15 +81,28 @@ The 1.6 font cache and SD `.cpfont` infrastructure remain in use. Legacy
 | Current 1.6 KO `x4pro` firmware | Passed with the same changes. `firmware.bin` is 5,031,952 bytes; program flash usage 5,031,446 / 6,553,600 bytes (76.8%). |
 | KO-only font profile `default` firmware | Passed with KoPub/Pretendard as the only registered built-ins. `firmware.bin` is 4,823,664 bytes; program flash usage 4,809,945 / 6,553,600 bytes (73.4%). |
 | KO-only font profile `x4pro` firmware | Passed with the same font profile. `firmware.bin` is 4,715,072 bytes; program flash usage 4,714,558 / 6,553,600 bytes (71.9%). |
+| Re-verified 2026-09-21 on `release/1.6.0-ko` (wip split into feature commits) | Host tests 181/181 (MSVC 19.44, CMake 3.29). `default`: `firmware.bin` 4,813,376 bytes, program flash 4,799,659 / 6,553,600 (73.2%). `x4pro`: `firmware.bin` 4,704,816 bytes, program flash 4,704,314 / 6,553,600 (71.8%). |
 
 Firmware toolchains: riscv32-esp-elf-g++ and xtensa-esp-elf-g++ 14.2.0
 (esp-14.2.0_20251107). The KO baseline worktree contains a host-only MSVC CMake
 option workaround, so its build banner says `dirty`; the firmware source itself
 is the KO tip commit.
 
-PlatformIO 6.2.0 failed here with a SCons `FortranCommon` import error. Both
-firmware builds need `PYTHONIOENCODING=utf-8` in this Windows Korean locale;
-otherwise generation fails while printing an Arabic translation.
+PlatformIO 6.2.0 failed here with a SCons `FortranCommon` import error. The
+pioarduino core 6.1.19 that CI uses works when installed with `uv` into a
+Python 3.13 `.venv` (`PLATFORMIO_CORE_DIR` pointed at a repo-local
+`.platformio`). Both firmware builds need `PYTHONIOENCODING=utf-8` in this
+Windows Korean locale; otherwise generation fails while printing an Arabic
+translation. Run `pio` from PowerShell or cmd, not Git Bash: ESP-IDF's
+`idf_tools.py` refuses an MSYS environment.
+
+## Branch layout
+
+`release/1.6.0-ko` starts at the 1.6.0 tag and carries the port as feature
+commits (host build fixes, localization, built-in fonts, `.epdfont`, layout,
+reading statistics, OTA version compare, desktop preview, docs). The original
+single `wip` commit remains on `codex/release-1.6.0-ko` for reference; the two
+trees are identical at the docs commit.
 
 Upstream 1.6 reads a language code in `settings.json` and no longer reads
 `language.bin`; the latter remains on KO 1.5 cards. The migration resolves
