@@ -223,6 +223,7 @@ bool SdCardFontRegistry::discover() {
   // sleep-folder pattern (/.sleep preferred over /sleep).
   scanRoot(FONTS_DIR_HIDDEN, families_);
   scanRoot(FONTS_DIR_VISIBLE, families_);
+  scanRoot(FONTS_DIR_LEGACY_KO, families_);
 
   // Sort families alphabetically
   std::sort(families_.begin(), families_.end(),

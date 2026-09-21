@@ -32,6 +32,9 @@ class SdCardFontRegistry {
   // when creating new installs; both are read from if present.
   static constexpr const char* FONTS_DIR_HIDDEN = "/.fonts";
   static constexpr const char* FONTS_DIR_VISIBLE = "/fonts";
+  // Read-only third root: KO 1.5 installed `.epdfont` files here and stored
+  // their paths in customFontPath/systemFontPath. Never used for new installs.
+  static constexpr const char* FONTS_DIR_LEGACY_KO = "/.crosspoint/fonts";
 
   // Returns the existing root for `familyName` (the one that contains
   // /<root>/<familyName>/), or nullptr if the family is not installed in

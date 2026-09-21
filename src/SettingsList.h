@@ -94,6 +94,52 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
   return s;
 }
 
+// UI (system) font: the built-in Pretendard or an SD family used as the UI
+// fallback face. Persists as SETTINGS.systemFontPath, the path of the family's
+// file closest to the built-in UI point size, which is what SdCardFontSystem::
+// setupLegacySystemFont() loads. KO 1.5 stored the same path.
+inline SettingInfo buildUiFontSetting(const SdCardFontRegistry* registry) {
+  constexpr uint8_t kUiPointSize = 10;
+  std::vector<std::string> familyNames;
+  std::vector<std::string> filePaths;
+  if (registry) {
+    for (const auto& family : registry->getFamilies()) {
+      const auto* file = family.findNearestSize(kUiPointSize);
+      if (!file) continue;
+      familyNames.push_back(family.name);
+      filePaths.push_back(file->path);
+    }
+  }
+
+  std::vector<std::string> labels;
+  labels.reserve(familyNames.size() + 1);
+  labels.push_back(I18N.get(StrId::STR_PRETENDARD));
+  labels.insert(labels.end(), familyNames.begin(), familyNames.end());
+
+  SettingInfo s;
+  s.nameId = StrId::STR_SYSTEM_FONT;
+  s.type = SettingType::ENUM;
+  s.enumStringValues = std::move(labels);
+  s.key = "systemFontPath";
+  s.category = StrId::STR_CAT_READER;
+
+  s.valueGetter = [filePaths]() -> uint8_t {
+    for (size_t i = 0; i < filePaths.size(); i++) {
+      if (filePaths[i] == SETTINGS.systemFontPath) return static_cast<uint8_t>(i + 1);
+    }
+    return 0;  // built-in, or a path that is no longer on the card
+  };
+  s.valueSetter = [filePaths](uint8_t v) {
+    if (v == 0 || v > filePaths.size()) {
+      SETTINGS.systemFontPath[0] = '\0';
+      return;
+    }
+    strncpy(SETTINGS.systemFontPath, filePaths[v - 1].c_str(), sizeof(SETTINGS.systemFontPath) - 1);
+    SETTINGS.systemFontPath[sizeof(SETTINGS.systemFontPath) - 1] = '\0';
+  };
+  return s;
+}
+
 // Build the font size setting dynamically: the options are the point sizes the
 // active family actually ships, so an SD family built at 10/12/14 offers three
 // sizes and a family built at 8..18 offers six. The selected point size persists
@@ -499,6 +545,9 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
     auto it = std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_FONT_FAMILY; });
     if (it != v.end()) {
       *it = buildFontFamilySetting(registry);
+      // Only offered once an SD family exists: with built-ins alone there is
+      // nothing to choose from.
+      v.insert(it + 1, buildUiFontSetting(registry));
     }
   }
   {

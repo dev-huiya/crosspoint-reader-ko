@@ -295,10 +295,14 @@ void SettingsActivity::toggleCurrentSetting() {
     const uint8_t cur = setting.valueGetter();
     if (totalValues > 2) {
       const auto valueSetter = setting.valueSetter;
-      auto onSelect = [this, valueSetter, sleepScreenChanged, quickResumeTimeoutChanged](int idx) {
+      // The UI font shows on this very screen, so load it now rather than on
+      // the next reader entry (where ensureLoaded() otherwise runs).
+      const bool isUiFont = setting.key != nullptr && strcmp(setting.key, "systemFontPath") == 0;
+      auto onSelect = [this, valueSetter, isUiFont, sleepScreenChanged, quickResumeTimeoutChanged](int idx) {
         valueSetter(idx);
         syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
         SETTINGS.saveToFile();
+        if (isUiFont) sdFontSystem.ensureLoaded(renderer);
         rebuildSettingsLists();
       };
       if (!setting.enumStringValues.empty()) {
