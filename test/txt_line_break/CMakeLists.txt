@@ -1,0 +1,4 @@
+add_executable(TxtLineBreakTest TxtLineBreakTest.cpp)
+target_include_directories(TxtLineBreakTest PRIVATE ${REPO_ROOT}/src/activities/reader)
+target_link_libraries(TxtLineBreakTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(TxtLineBreakTest)
