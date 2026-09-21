@@ -26,6 +26,27 @@ void copyToField(char* dest, const char* src, const size_t maxLen) {
   strncpy(dest, src, maxLen - 1);
   dest[maxLen - 1] = '\0';
 }
+
+void legacyFontFamilyFromPath(char* dest, size_t destLen, const char* path) {
+  if (!path || !*path) return;
+  const char* filename = strrchr(path, '/');
+  filename = filename ? filename + 1 : path;
+  const char* family = filename;
+  size_t length = strlen(filename);
+  const char* parentEnd = filename > path ? filename - 1 : path;
+  const char* parentStart = parentEnd;
+  while (parentStart > path && parentStart[-1] != '/') --parentStart;
+  const size_t parentLength = static_cast<size_t>(parentEnd - parentStart);
+  if (parentLength && !(parentLength == 5 && strncmp(parentStart, "fonts", 5) == 0) &&
+      !(parentLength == 6 && strncmp(parentStart, ".fonts", 6) == 0)) {
+    family = parentStart;
+    length = parentLength;
+  } else if (length > 8 && strcmp(filename + length - 8, ".epdfont") == 0) {
+    length -= 8;
+  }
+  if (length >= destLen) length = destLen - 1;
+  memcpy(dest, family, length);
+  dest[length] = '\0';
 }
 
 }  // namespace
@@ -97,6 +118,8 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = sdFontFamilyName;
   }
+  if (customFontPath[0] != '\0') doc["customFontPath"] = customFontPath;
+  if (systemFontPath[0] != '\0') doc["systemFontPath"] = systemFontPath;
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, save manually
   if (dictionaryName[0] != '\0') {
     doc["dictionaryName"] = dictionaryName;
@@ -213,6 +236,10 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   const char* sfn = doc["sdFontFamilyName"] | "";
   strncpy(sdFontFamilyName, sfn, sizeof(sdFontFamilyName) - 1);
   sdFontFamilyName[sizeof(sdFontFamilyName) - 1] = '\0';
+  copyToField(customFontPath, doc["customFontPath"] | "", sizeof(customFontPath));
+  copyToField(systemFontPath, doc["systemFontPath"] | "", sizeof(systemFontPath));
+  if (sdFontFamilyName[0] == '\0' && customFontPath[0] != '\0') {
+    legacyFontFamilyFromPath(sdFontFamilyName, sizeof(sdFontFamilyName), customFontPath);
     needsResave = true;
   }
   if (storedFontFamily == LEGACY_OPENDYSLEXIC && sdFontFamilyName[0] == '\0') {

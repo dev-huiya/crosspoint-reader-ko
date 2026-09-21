@@ -30,6 +30,10 @@ class EpdFontFamily {
   /// Returns true if the resolved style's font can render `cp` directly
   /// (interval coverage only — see EpdFont::hasCodepoint).
   bool hasCodepoint(uint32_t cp, Style style = REGULAR) const;
+  bool needsSyntheticBold(Style style) const {
+    return (static_cast<uint8_t>(style) & BOLD) != 0 && bold == nullptr &&
+           (((static_cast<uint8_t>(style) & ITALIC) == 0) || boldItalic == nullptr);
+  }
   int8_t getKerning(uint32_t leftCp, uint32_t rightCp, Style style = REGULAR) const;
   uint32_t applyLigatures(uint32_t cp, const char*& text, Style style = REGULAR) const;
   static constexpr bool hasTextDecoration(const Style style) {

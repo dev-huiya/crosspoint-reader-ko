@@ -62,6 +62,8 @@ void SdCardFontSystem::begin(GfxRenderer& renderer) {
     }
   }
 
+  setupLegacySystemFont(renderer);
+
   LOG_DBG("SDFS", "SD font system ready (%d families discovered)", registry_.getFamilyCount());
 }
 
@@ -86,6 +88,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
     // Back on a built-in family, which exists only at BUILTIN_READER_POINT_SIZES:
     // a size inherited from an SD family has to come back into that set.
     snapFontPointSizeTo(CrossPointSettings::DEFAULT_FONT_POINT_SIZE);
+    setupLegacySystemFont(renderer);
     return;
   }
 
@@ -99,6 +102,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
       LOG_DBG("SDFS", "SD font family disappeared: %s (clearing)", wantedFamily);
       manager_.unloadAll(renderer);
       SETTINGS.clearSdFontFamily();
+      setupLegacySystemFont(renderer);
       return;
     }
     const auto* selected = family->findNearestSize(SETTINGS.fontPointSize);
@@ -106,7 +110,10 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
     // Snap before the early return: the wanted size can already be loaded while
     // the setting still names a size this family does not ship.
     snapFontPointSizeTo(wantedPt);
-    if (!registryWasDirty && wantedPt == manager_.currentPointSize()) return;
+    if (!registryWasDirty && wantedPt == manager_.currentPointSize()) {
+      setupLegacySystemFont(renderer);
+      return;
+    }
     LOG_DBG("SDFS", "Reloading %s: size %u -> %u%s", wantedFamily, manager_.currentPointSize(), wantedPt,
             registryWasDirty ? " [registry dirty]" : "");
   }
@@ -129,6 +136,49 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
     LOG_DBG("SDFS", "SD font family not found: %s (clearing)", wantedFamily);
     SETTINGS.clearSdFontFamily();
   }
+  setupLegacySystemFont(renderer);
+}
+
+void SdCardFontSystem::setupLegacySystemFont(GfxRenderer& renderer) {
+  const char* path = SETTINGS.systemFontPath;
+  if (!*path) {
+    if (!systemManager_.currentFamilyName().empty()) {
+      systemManager_.unloadAll(renderer);
+      setupUiFallbacks(renderer);
+    }
+    return;
+  }
+
+  const SdCardFontFamilyInfo* selectedFamily = nullptr;
+  const SdCardFontFileInfo* selectedFile = nullptr;
+  for (const auto& family : registry_.getFamilies()) {
+    for (const auto& file : family.files) {
+      if (file.path == path) {
+        selectedFamily = &family;
+        selectedFile = &file;
+        break;
+      }
+    }
+    if (selectedFile) break;
+  }
+  if (!selectedFile) {
+    if (!systemManager_.currentFamilyName().empty()) systemManager_.unloadAll(renderer);
+    setupUiFallbacks(renderer);
+    return;
+  }
+
+  int fontId = 0;
+  if (manager_.currentFamilyName() == selectedFamily->name) {
+    if (!systemManager_.currentFamilyName().empty()) systemManager_.unloadAll(renderer);
+    fontId = manager_.loadFamilyExtraSize(*selectedFamily, renderer, selectedFile->pointSize);
+  } else {
+    if (systemManager_.currentFamilyName() != selectedFamily->name ||
+        systemManager_.currentPointSize() != selectedFile->pointSize) {
+      if (!systemManager_.loadFamily(*selectedFamily, renderer, selectedFile->pointSize)) return;
+    }
+    fontId = systemManager_.getFontId(selectedFamily->name);
+  }
+  if (fontId != 0) renderer.setFallbackFont(UI_10_FONT_ID, fontId);
 }
 
 void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {

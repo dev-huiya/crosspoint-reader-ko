@@ -10,6 +10,7 @@
 #include <Utf8.h>
 
 #include <algorithm>
+#include <cassert>
 
 #include "FontCacheManager.h"
 
@@ -454,6 +455,17 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   }
 
   const EpdFontData* fontData = fontFamily.getData(style);
+  const bool syntheticBold = fontFamily.needsSyntheticBold(style);
+  const auto paintInk = [&](const int x, const int y, const bool state) {
+    renderer.drawPixel(x, y, state);
+    if (syntheticBold) {
+      if constexpr (rotation == TextRotation::Rotated90CW) {
+        if (y > 0) renderer.drawPixel(x, y - 1, state);
+      } else {
+        if (x + 1 < renderer.getScreenWidth()) renderer.drawPixel(x + 1, y, state);
+      }
+    }
+  };
   const bool is2Bit = fontData->is2Bit;
   const uint8_t width = glyph->width;
   const uint8_t height = glyph->height;
@@ -466,13 +478,13 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   if constexpr (rotation == TextRotation::Rotated90CW) {
     const int ob = cursorX + fontData->ascender - top;
     const int ib = cursorY - left;
-    if (!renderer.glyphIntersectsStrip(ob, ib - (width - 1), ob + height - 1, ib)) {
+    if (!renderer.glyphIntersectsStrip(ob, ib - (width - 1) - (syntheticBold ? 1 : 0), ob + height - 1, ib)) {
       return;
     }
   } else {
     const int gx0 = cursorX + left;
     const int gy0 = cursorY - top;
-    if (!renderer.glyphIntersectsStrip(gx0, gy0, gx0 + width - 1, gy0 + height - 1)) {
+    if (!renderer.glyphIntersectsStrip(gx0, gy0, gx0 + width - 1 + (syntheticBold ? 1 : 0), gy0 + height - 1)) {
       return;
     }
   }
@@ -514,15 +526,15 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
 
           if (renderMode == GfxRenderer::BW && bmpVal < 3) {
             // Black (also paints over the grays in BW mode)
-            renderer.drawPixel(screenX, screenY, pixelState);
+            paintInk(screenX, screenY, pixelState);
           } else if (renderMode == GfxRenderer::GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
             // Light gray (also mark the MSB if it's going to be a dark gray too)
             // Dedicated X3 gray LUTs now provide proper 4-level gray on both devices
             // We have to flag pixels in reverse for the gray buffers, as 0 leave alone, 1 update
-            renderer.drawPixel(screenX, screenY, false);
+            paintInk(screenX, screenY, false);
           } else if (renderMode == GfxRenderer::GRAYSCALE_LSB && bmpVal == 1) {
             // Dark gray
-            renderer.drawPixel(screenX, screenY, false);
+            paintInk(screenX, screenY, false);
           }
         }
       }
@@ -544,7 +556,7 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
           const uint8_t bit_index = 7 - (pixelPosition & 7);
 
           if ((byte >> bit_index) & 1) {
-            renderer.drawPixel(screenX, screenY, pixelState);
+            paintInk(screenX, screenY, pixelState);
           }
         }
       }

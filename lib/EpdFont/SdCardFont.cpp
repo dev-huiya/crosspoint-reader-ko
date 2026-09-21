@@ -207,6 +207,7 @@ void SdCardFont::freeAll() {
   styleCount_ = 0;
   contentHash_ = 0;
   loaded_ = false;
+  legacyFormat_ = false;
 }
 
 void SdCardFont::clearOverflow() {
@@ -523,6 +524,24 @@ void SdCardFont::computeStyleFileOffsets(PerStyle& s, uint32_t baseOffset) {
   s.bitmapFileOffset = s.ligatureFileOffset + s.header.ligaturePairCount * sizeof(EpdLigaturePair);
 }
 
+bool SdCardFont::readGlyph(HalFile& file, EpdGlyph& glyph) const {
+  if (!legacyFormat_) {
+    return file.read(reinterpret_cast<uint8_t*>(&glyph), sizeof(glyph)) == sizeof(glyph);
+  }
+  uint8_t raw[16];
+  if (file.read(raw, sizeof(raw)) != sizeof(raw)) return false;
+  const uint32_t dataLength = readU32(raw + 8);
+  if (dataLength > UINT16_MAX) return false;
+  glyph.width = raw[0];
+  glyph.height = raw[1];
+  glyph.advanceX = static_cast<uint16_t>(raw[2]) << 4;
+  glyph.left = readI16(raw + 4);
+  glyph.top = readI16(raw + 6);
+  glyph.dataLength = static_cast<uint16_t>(dataLength);
+  glyph.dataOffset = readU32(raw + 12);
+  return true;
+}
+
 // --- Load ---
 
 bool SdCardFont::load(const char* path) {
@@ -547,6 +566,36 @@ bool SdCardFont::load(const char* path) {
     return false;
   }
 
+  if (readU32(headerBuf) == 0x46445045u) {
+    // .epdfont v1 has one regular style and integer-pixel glyph advances.
+    if (readU16(headerBuf + 4) != 1) {
+      LOG_ERR("SDCF", "Unsupported .epdfont version: %u", readU16(headerBuf + 4));
+      return false;
+    }
+    auto& s = styles_[0];
+    s.present = true;
+    s.header.is2Bit = headerBuf[6] != 0;
+    s.header.advanceY = headerBuf[8];
+    s.header.ascender = static_cast<int8_t>(headerBuf[9]);
+    s.header.descender = static_cast<int8_t>(headerBuf[10]);
+    s.header.intervalCount = readU32(headerBuf + 12);
+    s.header.glyphCount = readU32(headerBuf + 16);
+    s.intervalsFileOffset = readU32(headerBuf + 20);
+    s.glyphsFileOffset = readU32(headerBuf + 24);
+    s.bitmapFileOffset = readU32(headerBuf + 28);
+    if (s.header.intervalCount == 0 || s.header.intervalCount > 10000 || s.header.glyphCount == 0 ||
+        s.header.glyphCount > 150000 || s.intervalsFileOffset < HEADER_SIZE ||
+        s.glyphsFileOffset < s.intervalsFileOffset + s.header.intervalCount * sizeof(EpdUnicodeInterval) ||
+        s.bitmapFileOffset < s.glyphsFileOffset + s.header.glyphCount * sizeof(EpdGlyph) ||
+        s.bitmapFileOffset > file.size()) {
+      LOG_ERR("SDCF", "Invalid .epdfont table offsets or counts: %s", path);
+      freeAll();
+      return false;
+    }
+    legacyFormat_ = true;
+    styleCount_ = 1;
+    contentHash_ = fnv1a(headerBuf, HEADER_SIZE);
+  } else {
   if (memcmp(headerBuf, CPFONT_MAGIC, 8) != 0) {
     LOG_ERR("SDCF", "Invalid magic bytes");
     return false;
@@ -624,6 +673,7 @@ bool SdCardFont::load(const char* path) {
 
   styleCount_ = styleCount;
   contentHash_ = hash;
+  }
 
   // Load full intervals into RAM for each present style. BMP-only fonts with
   // fewer than 65536 glyphs use a compact 6-byte interval table instead of the
@@ -729,7 +779,7 @@ bool SdCardFont::load(const char* path) {
 
   loaded_ = true;
 
-  LOG_DBG("SDCF", "Loaded: %s (v%u, %u styles)", path, CPFONT_VERSION, styleCount_);
+  LOG_DBG("SDCF", "Loaded: %s (%s, %u styles)", path, legacyFormat_ ? "epdfont v1" : "cpfont v4", styleCount_);
   for (uint8_t i = 0; i < MAX_STYLES; i++) {
     if (!styles_[i].present) continue;
     const auto& h = styles_[i].header;
@@ -1161,7 +1211,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
       }
       seekCount++;
     }
-    if (file.read(reinterpret_cast<uint8_t*>(&s.miniGlyphs[mapIdx]), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
+    if (!readGlyph(file, s.miniGlyphs[mapIdx])) {
       LOG_ERR("SDCF", "Prewarm: short glyph read (style %u, glyph %d)", styleIdx, gIdx);
       delete[] readOrder;
       delete[] mappings;
@@ -1464,7 +1514,7 @@ int SdCardFont::fetchAdvancesForCodepoints(uint32_t* codepoints, uint32_t cpCoun
           break;
         }
       }
-      if (file.read(reinterpret_cast<uint8_t*>(&tempGlyph), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
+      if (!readGlyph(file, tempGlyph)) {
         LOG_ERR("SDCF", "buildAdvanceTable: short glyph read (style %u, glyph %d)", si, gIdx);
         break;
       }
@@ -1630,7 +1680,7 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
     file.close();
     return nullptr;
   }
-  if (file.read(reinterpret_cast<uint8_t*>(&tempGlyph), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
+  if (!self->readGlyph(file, tempGlyph)) {
     LOG_ERR("SDCF", "Overflow: failed to read glyph metadata for U+%04X style %u", codepoint, styleIdx);
     return nullptr;
   }

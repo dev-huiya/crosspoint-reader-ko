@@ -6,6 +6,7 @@
 #include <SdCardFont.h>
 #include <SdCardFontRegistry.h>
 
+
 SdCardFontManager::~SdCardFontManager() {
   for (auto& lf : loaded_) {
     delete lf.font;
@@ -96,10 +97,9 @@ int SdCardFontManager::loadFamilyExtraSize(const SdCardFontFamilyInfo& family, G
 
 void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
   // Drop UI CJK fallbacks before the SD fonts they point at are freed.
-  renderer.clearFallbackFonts();
-  renderer.clearSdCardFonts();
+  for (const auto& lf : loaded_) renderer.clearFallbackFontsTo(lf.fontId);
   for (auto& lf : loaded_) {
-    renderer.removeFont(lf.fontId);
+    renderer.unregisterSdCardFont(lf.fontId);
     delete lf.font;
   }
   loaded_.clear();

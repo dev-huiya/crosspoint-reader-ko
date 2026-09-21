@@ -52,9 +52,11 @@ class SdCardFontSystem {
   // No-op when no SD family is loaded. Safe to call repeatedly (sizes already
   // loaded are reused).
   void setupUiFallbacks(GfxRenderer& renderer);
+  void setupLegacySystemFont(GfxRenderer& renderer);
 
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;
+  SdCardFontManager systemManager_;
   std::atomic<bool> registryDirty_{false};
 };
 
