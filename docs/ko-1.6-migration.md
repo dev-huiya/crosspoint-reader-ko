@@ -45,7 +45,8 @@ decision. These are port decisions, not claims that work is complete.
 | KO release endpoint and version parser | KEEP, REIMPLEMENT | Update endpoint and parser without replacing 1.6 networking/device profiles. |
 | X4 Pro hardware drivers | UPSTREAM_REPLACEMENT | Use upstream 1.6 board, touch, frontlight, Home key, USB and sleep HAL. |
 | Legacy `TextSettingsActivity` removal | REVIEW | 1.6 reader flow determines whether any KO-specific screen is needed. |
-| Legacy battery calibration | REVIEW | Check 1.6 board behavior on hardware before carrying device-specific code. |
+| KO TXT reader (character wrap, justification, indent/spacing, menu, page jump, reading time) | KEEP, REIMPLEMENT | Port onto the 1.6 streaming byte-offset TXT reader; keep its page index cache and add the KO layout inputs to the cache key. See "Phase 4". |
+| Legacy battery calibration | UPSTREAM_REPLACEMENT | Decided 2026-09-21: follow the 1.6 SDK's battery reading for every board. The KO 1.5 X4 offset table is not carried; a board-specific error is reported upstream instead. |
 
 ## Three-way comparison priorities
 
@@ -168,7 +169,12 @@ program flash usage against the 6,553,600-byte app partition
 | `x4pro` | 4,713,086 | 71.9% | 4,713,600 |
 | `x4pro-gh_release` | 4,674,230 | 71.3% | 4,674,736 |
 
-Headroom is over 1.7 MB on every board, so `CP_HYPHENATION_LANGS=0` (KO 1.5's
+After the TXT reader port (commit `6c854ed2`, 2026-09-21): `default`
+4,882,573 (74.5%), `x4pro` 4,785,314 (73.0%). The built-in font coverage
+extension (kana, KS X 1001 symbols, fullwidth forms) accounts for most of the
+growth since the Phase 5 row; the TXT port itself is about 10 KB.
+
+Headroom is over 1.6 MB on every board, so `CP_HYPHENATION_LANGS=0` (KO 1.5's
 hyphenation-table cut) is not reintroduced and the upstream hyphenation
 languages stay available when character wrap is off.
 
@@ -201,6 +207,39 @@ languages stay available when character wrap is off.
 - Upstream replacements verified in code: auto page turn, long-press page
   behaviour, back-short-to-file-browser all exist in 1.6 and are untouched.
 - Firmware: `default` 4,809,533 bytes program flash after this phase.
+
+#### Phase 4 (continued) — TXT reader
+
+The 1.6 TXT reader is a streaming reader with a cached page index of byte
+offsets; KO 1.5's TXT reader was a separate implementation. The KO behaviour
+was ported onto the 1.6 structure rather than replacing it:
+
+- `src/activities/reader/TxtLineBreak.h`: renderer-free line breaking. With
+  character wrap on, a line breaks on the last fitting character (binary search
+  over UTF-8 boundaries, one advance measurement per probe); off, on the last
+  fitting space with a character-break fallback for over-wide words. A page
+  never starts on a UTF-8 continuation byte.
+- Justified alignment spreads the slack between glyphs
+  (`GfxRenderer::drawTextTracked`); a paragraph's last line and the page's
+  last line stay ragged. Paragraph indent is one U+3000; extra paragraph
+  spacing is half a line above every paragraph but the page's first, so pages
+  are filled by height instead of a fixed line count.
+- `TxtReaderMenuActivity`: the EPUB menu screen cut down to text settings,
+  night mode, go to percent, auto page turn, long-press page jump
+  (off/10/20/50/100), rotation, screenshot, go home and reset reading time,
+  with page/percent/reading time in the header. Opened by Confirm, the touch
+  menu gesture or a Home-key hold set to "reader menu".
+- Long-press page jump: holding a page button for `SKIP_HOLD_MS` jumps by the
+  menu's step. With the long-press button setting off, page turns move to the
+  release while a step is active (press-to-turn cannot measure a hold).
+- Progress: `progress.bin` is page (2 bytes, the 1.6 layout) + 2 zero bytes +
+  the page's byte offset (4 bytes). A 1.6 four-byte file still loads; the
+  offset restores the position after a text-setting re-pagination.
+- Index cache: `CACHE_VERSION` 4 (1.6 wrote 3), keyed additionally on viewport
+  height, line height, the wrap/indent/spacing flags and the indent width.
+- Tests: `test/txt_line_break` (5 cases: no glyph lost, no UTF-8 split, no
+  line over width, word-wrap fallback, codepoint count). Host suite 201/201.
+- Battery calibration: not ported, see the inventory (follow the 1.6 SDK).
 
 ### Phase 5 — OTA, release, size, cache
 
