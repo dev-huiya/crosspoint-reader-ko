@@ -4,6 +4,16 @@
 #include <string>
 
 #include "lib/JsonParser/ReleaseJsonParser.h"
+#include "src/network/KoReleaseVersion.h"
+
+TEST(KoReleaseVersion, ComparesKoRevisionsAndRejectsMalformedTags) {
+  EXPECT_TRUE(ko_release::isNewer("1.6.0-ko.2", "1.6.0-ko.1"));
+  EXPECT_FALSE(ko_release::isNewer("1.6.0-ko.1", "1.6.0-ko.2"));
+  EXPECT_TRUE(ko_release::isNewer("v1.6.0-ko.1", "1.6.0-dev-local"));
+  EXPECT_TRUE(ko_release::isNewer("1.6.0-ko.1", "1.6.0"));
+  EXPECT_FALSE(ko_release::isNewer("garbage", "1.6.0-ko.1"));
+  EXPECT_FALSE(ko_release::isNewer("1.6.0-ko.bad", "1.6.0-ko.1"));
+}
 
 namespace {
 
