@@ -298,6 +298,12 @@ class GfxRenderer {
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR,
                 BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO) const;
+  // drawText with `letterSpacing` extra pixels after every glyph. The TXT
+  // reader justifies character-wrapped Korean lines this way: such lines have
+  // few or no word gaps to stretch, so the slack is spread between glyphs.
+  void drawTextTracked(int fontId, int x, int y, const char* text, int8_t letterSpacing, bool black = true,
+                       EpdFontFamily::Style style = EpdFontFamily::REGULAR,
+                       BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO) const;
   int getSpaceWidth(int fontId, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Returns the total inter-word advance: fp4::toPixel(spaceAdvance + kern(leftCp,' ') + kern(' ',rightCp)).
   /// Using a single snap avoids the +/-1 px rounding error that arises when space advance and kern are
