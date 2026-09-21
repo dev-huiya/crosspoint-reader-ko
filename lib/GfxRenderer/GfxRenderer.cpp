@@ -12,6 +12,7 @@
 #include <Utf8.h>
 
 #include <algorithm>
+#include <cassert>
 
 #include "../Memory/Memory.h"
 #include "FontCacheManager.h"
@@ -534,6 +535,9 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   }
 
   const EpdFontData* fontData = fontFamily.getData(style);
+  // Single-style SD families (KO 1.5 .epdfont) have no bold face: paint the
+  // glyph a second time one pixel along its advance axis.
+  const bool syntheticBold = fontFamily.needsSyntheticBold(style);
   const bool is2Bit = fontData->is2Bit;
   const uint8_t width = glyph->width;
   const uint8_t height = glyph->height;
@@ -546,13 +550,13 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   if constexpr (rotation == TextRotation::Rotated90CW) {
     const int ob = cursorX + fontData->ascender - top;
     const int ib = cursorY - left;
-    if (!renderer.glyphIntersectsStrip(ob, ib - (width - 1), ob + height - 1, ib)) {
+    if (!renderer.glyphIntersectsStrip(ob, ib - (width - 1) - (syntheticBold ? 1 : 0), ob + height - 1, ib)) {
       return;
     }
   } else {
     const int gx0 = cursorX + left;
     const int gy0 = cursorY - top;
-    if (!renderer.glyphIntersectsStrip(gx0, gy0, gx0 + width - 1, gy0 + height - 1)) {
+    if (!renderer.glyphIntersectsStrip(gx0, gy0, gx0 + width - 1 + (syntheticBold ? 1 : 0), gy0 + height - 1)) {
       return;
     }
   }
@@ -570,6 +574,11 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
     frame = {cursorX + left, cursorY - top, 1, 0, 0, 1};
   }
   renderer.drawGlyphBitmap(bitmap, width, height, frame, is2Bit, renderMode, pixelState);
+  if (syntheticBold) {
+    frame.x += frame.dxX;
+    frame.y += frame.dxY;
+    renderer.drawGlyphBitmap(bitmap, width, height, frame, is2Bit, renderMode, pixelState);
+  }
 }
 
 // Draw an unscaled glyph placed by a logical frame. Equivalent to calling

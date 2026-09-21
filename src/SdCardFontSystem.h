@@ -68,6 +68,7 @@ class SdCardFontSystem {
   // family is loaded. Safe to call repeatedly (sizes already loaded are
   // reused).
   void setupUiFallbacks(GfxRenderer& renderer);
+  void setupLegacySystemFont(GfxRenderer& renderer);
 
 #if CROSSPOINT_VECTOR_FONTS
   // --- Vector (.ttf/.otf) font path (FreeInkFont via TtfEpdFont) -------------
@@ -94,6 +95,7 @@ class SdCardFontSystem {
 
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;
+  SdCardFontManager systemManager_;
   std::atomic<bool> registryDirty_{false};
 
 #if CROSSPOINT_VECTOR_FONTS

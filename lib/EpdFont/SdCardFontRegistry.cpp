@@ -68,12 +68,15 @@ bool SdCardFontRegistry::parseFilename(const char* filename, uint8_t& size, uint
   // V4 naming: <name>_<size>.cpfont (e.g. Bookerly-SD_14.cpfont)
   // Use an ends-with check rather than strstr() so that in-progress downloads
   // like "Foo_14.cpfont.tmp" or backups like "Foo_14.cpfont~" aren't accepted.
-  static constexpr char kExt[] = ".cpfont";
-  static constexpr size_t kExtLen = sizeof(kExt) - 1;
+  static constexpr char kCpExt[] = ".cpfont";
+  static constexpr char kLegacyExt[] = ".epdfont";
   const size_t nameLen = strlen(filename);
-  if (nameLen <= kExtLen) return false;
-  if (strcmp(filename + nameLen - kExtLen, kExt) != 0) return false;
-  const char* ext = filename + nameLen - kExtLen;
+  const bool cpfont = nameLen > sizeof(kCpExt) - 1 &&
+                      strcmp(filename + nameLen - (sizeof(kCpExt) - 1), kCpExt) == 0;
+  const bool legacy = nameLen > sizeof(kLegacyExt) - 1 &&
+                      strcmp(filename + nameLen - (sizeof(kLegacyExt) - 1), kLegacyExt) == 0;
+  if (!cpfont && !legacy) return false;
+  const char* ext = filename + nameLen - (cpfont ? sizeof(kCpExt) - 1 : sizeof(kLegacyExt) - 1);
 
   size_t baseLen = ext - filename;
   if (baseLen == 0 || baseLen > 127) return false;
@@ -83,6 +86,11 @@ bool SdCardFontRegistry::parseFilename(const char* filename, uint8_t& size, uint
   base[baseLen] = '\0';
 
   char* lastUnderscore = strrchr(base, '_');
+  if ((!lastUnderscore || lastUnderscore == base) && legacy) {
+    size = 14;
+    style = 0;
+    return true;
+  }
   if (!lastUnderscore || lastUnderscore == base) return false;
 
   const char* sizeStr = lastUnderscore + 1;
@@ -270,7 +278,15 @@ void SdCardFontRegistry::scanDirectory(const char* dirPath, SdCardFontFamilyInfo
         }
       }
       if (duplicate) {
-        LOG_ERR("SDREG", "Duplicate font %s in %s — skipping", nameBuffer, dirPath);
+        // Prefer the current multi-style format when both formats provide the same size.
+        if (strstr(nameBuffer, ".cpfont")) {
+          for (auto& existing : cpfontFiles) {
+            if (existing.pointSize == size && existing.style == style) {
+              existing.path = std::string(dirPath) + "/" + nameBuffer;
+              break;
+            }
+          }
+        }
         continue;
       }
       SdCardFontFileInfo info;
@@ -355,12 +371,24 @@ void SdCardFontRegistry::scanRoot(const char* rootPath, std::vector<SdCardFontFa
                 static_cast<int>(out.back().files.size()), rootPath);
       }
     } else {
-#if CROSSPOINT_VECTOR_FONTS
-      // Loose TrueType/OpenType file directly under the root (e.g.
-      // /fonts/Bookerly.ttf). Rendered at any size via the FreeInkFont engine.
       entry.getName(nameBuffer, sizeof(nameBuffer));
       entry.close();
       if (nameBuffer[0] == '.' || nameBuffer[0] == '_') continue;
+
+      // Loose KO 1.5 `.epdfont` file directly under the root: one family per file.
+      uint8_t size, style;
+      if (SdCardFontRegistry::parseFilename(nameBuffer, size, style) && strstr(nameBuffer, ".epdfont")) {
+        SdCardFontFamilyInfo family;
+        family.name.assign(nameBuffer, strlen(nameBuffer) - strlen(".epdfont"));
+        family.files.reserve(1);
+        family.files.push_back({std::string(rootPath) + "/" + nameBuffer, size, style});
+        out.push_back(std::move(family));
+        continue;
+      }
+
+#if CROSSPOINT_VECTOR_FONTS
+      // Loose TrueType/OpenType file directly under the root (e.g.
+      // /fonts/Bookerly.ttf). Rendered at any size via the FreeInkFont engine.
       size_t baseLen = 0;
       if (!parseVectorFontName(nameBuffer, baseLen)) continue;
 

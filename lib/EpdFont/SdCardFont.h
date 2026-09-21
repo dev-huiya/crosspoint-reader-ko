@@ -18,6 +18,8 @@
 // Reader enforcement: SdCardFont::load().
 #define CPFONT_VERSION 4
 
+class HalFile;
+
 class SdCardFont {
  public:
   static constexpr uint16_t MAX_PAGE_GLYPHS = 512;
@@ -315,6 +317,7 @@ class SdCardFont {
   Stats stats_;
   uint32_t contentHash_ = 0;
   bool loaded_ = false;
+  bool legacyFormat_ = false;
 
   // Per-style helpers
   void freeStyleMiniData(PerStyle& s);
@@ -338,6 +341,7 @@ class SdCardFont {
   void freeAll();
   void clearOverflow();
   static void computeStyleFileOffsets(PerStyle& s, uint32_t baseOffset);
+  bool readGlyph(HalFile& file, EpdGlyph& glyph) const;
 
   // Static callback for EpdFontData::glyphMissHandler (per-style via OverflowContext)
   static const EpdGlyph* onGlyphMiss(void* ctx, uint32_t codepoint);
