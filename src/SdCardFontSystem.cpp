@@ -44,6 +44,10 @@ void SdCardFontSystem::begin(GfxRenderer& renderer) {
   };
   SETTINGS.sdFontResolverCtx = this;
 
+  // Built-in UI fallback first; SD fonts below may override it and unloading
+  // them must land back here (setupUiFallbacks re-applies it).
+  setupUiFallbacks(renderer);
+
   // If user has a saved SD font selection, load it
   if (SETTINGS.sdFontFamilyName[0] != '\0') {
     const auto* family = registry_.findFamily(SETTINGS.sdFontFamilyName);
@@ -84,6 +88,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
   if (wantedFamily[0] == '\0') {
     if (!currentFamily.empty()) {
       manager_.unloadAll(renderer);
+      setupUiFallbacks(renderer);
     }
     // Back on a built-in family, which exists only at BUILTIN_READER_POINT_SIZES:
     // a size inherited from an SD family has to come back into that set.
@@ -102,6 +107,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
       LOG_DBG("SDFS", "SD font family disappeared: %s (clearing)", wantedFamily);
       manager_.unloadAll(renderer);
       SETTINGS.clearSdFontFamily();
+      setupUiFallbacks(renderer);
       setupLegacySystemFont(renderer);
       return;
     }
@@ -131,10 +137,12 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
     } else {
       LOG_ERR("SDFS", "Failed to load SD font family: %s (clearing)", wantedFamily);
       SETTINGS.clearSdFontFamily();
+      setupUiFallbacks(renderer);
     }
   } else {
     LOG_DBG("SDFS", "SD font family not found: %s (clearing)", wantedFamily);
     SETTINGS.clearSdFontFamily();
+    setupUiFallbacks(renderer);
   }
   setupLegacySystemFont(renderer);
 }
@@ -162,6 +170,11 @@ void SdCardFontSystem::setupLegacySystemFont(GfxRenderer& renderer) {
     if (selectedFile) break;
   }
   if (!selectedFile) {
+    // The file left the card: forget it (as KO 1.5 did) so the settings UI
+    // shows the built-in UI font instead of a selection that cannot load.
+    LOG_DBG("SDFS", "System font not found: %s (clearing)", path);
+    SETTINGS.systemFontPath[0] = '\0';
+    SETTINGS.saveToFile();
     if (!systemManager_.currentFamilyName().empty()) systemManager_.unloadAll(renderer);
     setupUiFallbacks(renderer);
     return;
@@ -182,8 +195,15 @@ void SdCardFontSystem::setupLegacySystemFont(GfxRenderer& renderer) {
 }
 
 void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {
+  // Korean built-in default: Pretendard carries Hangul but no Hanja or kana, so
+  // UI strings containing them resolve to KoPub Batang (same script coverage,
+  // one size up). Re-applied here rather than once at boot because
+  // SdCardFontManager::unloadAll() erases every fallback entry that pointed at
+  // the SD font it frees, and setFallbackFont() overwrites the slot.
+  renderer.setFallbackFont(UI_10_FONT_ID, KOPUB_14_FONT_ID);
+
   const std::string& familyName = manager_.currentFamilyName();
-  if (familyName.empty()) return;  // no SD family loaded — nothing to fall back to
+  if (familyName.empty()) return;  // no SD family loaded — built-in fallback stays
 
   const auto* family = registry_.findFamily(familyName);
   if (!family) return;

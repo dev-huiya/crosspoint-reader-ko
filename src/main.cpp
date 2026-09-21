@@ -280,7 +280,8 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.setFontCacheManager(&fontCacheManager);
   renderer.insertFont(KOPUB_14_FONT_ID, kopub14FontFamily);
   renderer.insertFont(PRETENDARD_10_FONT_ID, pretendard10FontFamily);
-  renderer.setFallbackFont(PRETENDARD_10_FONT_ID, KOPUB_14_FONT_ID);
+  // The Pretendard -> KoPub UI fallback is installed by sdFontSystem.begin()
+  // so SD font loads and unloads keep it consistent.
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);
