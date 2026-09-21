@@ -38,17 +38,13 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           submodules: recursive
 
-      - name: Validate release version
+      # KO releases are tagged 1.6.5-ko.N; the firmware reports that exact
+      # string so OtaUpdater's KO version compare sees the release channel.
+      # The tag sets the version instead of having to match platformio.ini.
+      - name: Set version from tag
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          version="${RELEASE_TAG#v}"
-          configured_version="$(sed -n 's/^version = //p' platformio.ini | head -n1)"
-          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
-            test "$version" = "${configured_version}rc"
-          else
-            test "$version" = "$configured_version"
-          fi
+        run: sed -i "s/^version = .*/version = ${RELEASE_TAG#v}/" platformio.ini
 
       - uses: actions/setup-python@v6
         with:
@@ -98,12 +94,19 @@ jobs:
           asset="crosspoint-${version}-${{ matrix.device }}.bin"
           cp ".pio/build/${PIO_ENV}/firmware.bin" "$asset"
           echo "name=$asset" >> "$GITHUB_OUTPUT"
+          # KO 1.6.0 OTA requests firmware.bin (C3 X3/X4) or firmware-<board>.bin.
+          # Stage those names too so devices still on 1.6.0-ko can update.
+          if [ "${{ matrix.device }}" = "x3-x4" ]; then legacy="firmware.bin"; else legacy="firmware-${{ matrix.device }}.bin"; fi
+          cp ".pio/build/${PIO_ENV}/firmware.bin" "legacy-${legacy}"
+          echo "legacy=legacy-${legacy}" >> "$GITHUB_OUTPUT"
 
       - name: Stage firmware asset
         uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.asset.outputs.name }}
-          path: ${{ steps.asset.outputs.name }}
+          path: |
+            ${{ steps.asset.outputs.name }}
+            ${{ steps.asset.outputs.legacy }}
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -133,3 +136,8 @@ jobs:
           test "$(find dist -maxdepth 1 -type f -name 'crosspoint-*.bin' | wc -l)" -eq 5
           gh release upload "$RELEASE_TAG" dist/crosspoint-*.bin \
             --repo "$GITHUB_REPOSITORY" --clobber
+          for staged in dist/legacy-*.bin; do
+            legacy="dist/${staged#dist/legacy-}"
+            mv "$staged" "$legacy"
+            gh release upload "$RELEASE_TAG" "$legacy" --repo "$GITHUB_REPOSITORY" --clobber
+          done
