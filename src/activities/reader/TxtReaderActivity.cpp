@@ -9,18 +9,37 @@
 #include <Serialization.h>
 #include <Utf8.h>
 
+#include <algorithm>
+#include <iterator>
+
 #include "CrossPointSettings.h"
+#include "EpubReaderPercentSelectionActivity.h"
 #include "ProgressFile.h"
 #include "ReaderActivity.h"
 #include "ReaderUtils.h"
+#include "SdCardFontSystem.h"
+#include "TxtLineBreak.h"
+#include "activities/settings/TextSettingsActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/ScreenshotUtil.h"
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 3;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 4;          // v4: height-driven pages, Korean layout settings
+
+// Same rates as the EPUB reader's auto page turn (pages per minute, index 0 = off).
+constexpr int PAGE_TURN_RATES[] = {1, 1, 3, 6, 12};
+// Long-press page jump sizes offered by the reader menu (index 0 = off).
+constexpr int PAGE_JUMP_STEPS[] = {0, 10, 20, 50, 100};
+// Held duration above which a page-button release jumps instead of turning.
+constexpr unsigned long PAGE_JUMP_HOLD_MS = ReaderUtils::SKIP_HOLD_MS;
+
+int clampPercent(const int percent) { return std::max(0, std::min(100, percent)); }
+
 }  // namespace
 
 bool TxtReaderActivity::loadBook() {
@@ -46,6 +65,10 @@ void TxtReaderActivity::initializeReader(GfxRenderer& renderer) {
   cachedFontId = SETTINGS.getReaderFontId();
   cachedScreenMargin = SETTINGS.screenMargin;
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
+  cachedCharacterWrap = SETTINGS.characterWrap;
+  cachedParagraphIndent = SETTINGS.paragraphIndent;
+  cachedExtraParagraphSpacing = SETTINGS.extraParagraphSpacing;
+  cachedLineCompression = SETTINGS.getReaderLineCompression();
 
   // Calculate viewport dimensions
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
@@ -57,13 +80,25 @@ void TxtReaderActivity::initializeReader(GfxRenderer& renderer) {
       std::max(cachedScreenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
-  const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
-  const int lineHeight = renderer.getLineHeight(cachedFontId);
+  viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
+  lineHeight = std::max(1, renderer.getLineHeight(cachedFontId, cachedLineCompression));
+
+  // Korean paragraph indent: one ideographic space (U+3000), as the EPUB reader
+  // uses; a font without that glyph falls back to a line height. Paragraph
+  // spacing is half a line above every paragraph but the page's first.
+  if (cachedParagraphIndent) {
+    paragraphIndentPx = renderer.getTextWidth(cachedFontId, "\xE3\x80\x80");
+    if (paragraphIndentPx <= 0) paragraphIndentPx = lineHeight;
+  } else {
+    paragraphIndentPx = 0;
+  }
+  paragraphSpacingPx = cachedExtraParagraphSpacing ? lineHeight / 2 : 0;
 
   linesPerPage = viewportHeight / lineHeight;
   if (linesPerPage < 1) linesPerPage = 1;
 
-  LOG_DBG("TRS", "Viewport: %dx%d, lines per page: %d", viewportWidth, viewportHeight, linesPerPage);
+  LOG_DBG("TRS", "Viewport: %dx%d, line %dpx, up to %d lines per page", viewportWidth, viewportHeight, lineHeight,
+          linesPerPage);
 
   // Try to load cached page index first
   if (!loadPageIndexCache()) {
@@ -77,6 +112,13 @@ void TxtReaderActivity::initializeReader(GfxRenderer& renderer) {
   loadProgress();
 
   initialized = true;
+}
+
+bool TxtReaderActivity::isOffsetAtLineStart(const size_t offset) const {
+  if (offset == 0) return true;
+  uint8_t previous = 0;
+  if (!txt->readContent(&previous, offset - 1, 1)) return true;
+  return previous == '\n';
 }
 
 void TxtReaderActivity::buildPageIndex(GfxRenderer& renderer) {
@@ -94,7 +136,7 @@ void TxtReaderActivity::buildPageIndex(GfxRenderer& renderer) {
     std::vector<std::string> tempLines;
     size_t nextOffset = offset;
 
-    if (!loadPageAtOffset(renderer, offset, tempLines, nextOffset)) {
+    if (!loadPageAtOffset(renderer, offset, tempLines, nullptr, nullptr, nextOffset)) {
       break;
     }
 
@@ -119,8 +161,11 @@ void TxtReaderActivity::buildPageIndex(GfxRenderer& renderer) {
 }
 
 bool TxtReaderActivity::loadPageAtOffset(GfxRenderer& renderer, size_t offset, std::vector<std::string>& outLines,
+                                         std::vector<bool>* outStartsParagraph, std::vector<bool>* outEndsParagraph,
                                          size_t& nextOffset) {
   outLines.clear();
+  if (outStartsParagraph) outStartsParagraph->clear();
+  if (outEndsParagraph) outEndsParagraph->clear();
   const size_t fileSize = txt->getFileSize();
 
   if (offset >= fileSize) {
@@ -144,6 +189,25 @@ bool TxtReaderActivity::loadPageAtOffset(GfxRenderer& renderer, size_t offset, s
   if (renderer.isSdCardFont(cachedFontId)) {
     renderer.ensureSdCardFontReady(cachedFontId, reinterpret_cast<const char*>(buffer), /*styleMask=*/0x01);
   }
+
+  // A page that starts mid-line continues the previous page's paragraph:
+  // no indent, no spacing above.
+  const bool firstLineIsParagraphStart = isOffsetAtLineStart(offset);
+
+  // The page is filled by height, not by line count: paragraph spacing makes
+  // lines unequal. linesPerPage only bounds the loop.
+  int accumulatedY = 0;
+  bool isFirstSourceLineOnPage = true;
+  auto tryAddLine = [&](const std::string& segment, const bool startsParagraph, const bool endsParagraph,
+                        const bool spacingAbove) -> bool {
+    const int pixelHeight = lineHeight + (spacingAbove ? paragraphSpacingPx : 0);
+    if (accumulatedY + pixelHeight > viewportHeight && !outLines.empty()) return false;
+    outLines.push_back(segment);
+    if (outStartsParagraph) outStartsParagraph->push_back(startsParagraph);
+    if (outEndsParagraph) outEndsParagraph->push_back(endsParagraph);
+    accumulatedY += pixelHeight;
+    return true;
+  };
 
   // Parse lines from buffer
   size_t pos = 0;
@@ -170,43 +234,47 @@ bool TxtReaderActivity::loadPageAtOffset(GfxRenderer& renderer, size_t offset, s
     std::string line(reinterpret_cast<char*>(buffer + pos), displayLen);
     size_t lineBytePos = 0;
 
+    const bool sourceLineStartsParagraph = isFirstSourceLineOnPage ? firstLineIsParagraphStart : true;
+    // Spacing goes above a paragraph that is not the page's first line.
+    const bool spacingAbove = paragraphSpacingPx > 0 && sourceLineStartsParagraph && !outLines.empty();
+    const int firstSegmentIndent = sourceLineStartsParagraph ? paragraphIndentPx : 0;
+    bool isFirstSegment = true;
+    bool pageFull = false;
+
     do {
+      const bool startsParagraph = isFirstSegment && sourceLineStartsParagraph;
+      const bool spacing = isFirstSegment && spacingAbove;
+
       if (line.empty()) {
-        outLines.emplace_back();
+        if (!tryAddLine("", startsParagraph, true, spacing)) pageFull = true;
         break;
       }
 
-      int lineWidth = renderer.getTextAdvanceX(cachedFontId, line.c_str(), EpdFontFamily::REGULAR);
+      const int effectiveWidth = std::max(1, viewportWidth - (isFirstSegment ? firstSegmentIndent : 0));
+      size_t breakPos =
+          txt_layout::findBreakPosition(line, effectiveWidth, cachedCharacterWrap != 0, [&](const std::string& prefix) {
+            return renderer.getTextAdvanceX(cachedFontId, prefix.c_str(), EpdFontFamily::REGULAR);
+          });
 
-      if (lineWidth <= viewportWidth) {
-        outLines.push_back(line);
+      if (breakPos >= line.length()) {
+        if (!tryAddLine(line, startsParagraph, true, spacing)) {
+          pageFull = true;
+          break;
+        }
         lineBytePos = displayLen;
         line.clear();
         break;
-      }
-
-      // Find break point
-      size_t breakPos = line.length();
-      while (breakPos > 0 && renderer.getTextAdvanceX(cachedFontId, line.substr(0, breakPos).c_str(),
-                                                      EpdFontFamily::REGULAR) > viewportWidth) {
-        // Try to break at space
-        size_t spacePos = line.rfind(' ', breakPos - 1);
-        if (spacePos != std::string::npos && spacePos > 0) {
-          breakPos = spacePos;
-        } else {
-          // Break at character boundary for UTF-8
-          breakPos--;
-          while (breakPos > 0 && (line[breakPos] & 0xC0) == 0x80) {
-            breakPos--;
-          }
-        }
       }
 
       if (breakPos == 0) {
         breakPos = 1;
       }
 
-      outLines.push_back(line.substr(0, breakPos));
+      if (!tryAddLine(line.substr(0, breakPos), startsParagraph, false, spacing)) {
+        pageFull = true;
+        break;
+      }
+      isFirstSegment = false;
 
       size_t skipChars = breakPos;
       if (breakPos < line.length() && line[breakPos] == ' ') {
@@ -216,9 +284,12 @@ bool TxtReaderActivity::loadPageAtOffset(GfxRenderer& renderer, size_t offset, s
       line = line.substr(skipChars);
     } while (!line.empty() && static_cast<int>(outLines.size()) < linesPerPage);
 
-    if (line.empty()) {
+    isFirstSourceLineOnPage = false;
+
+    if (line.empty() && !pageFull) {
       pos = lineEnd + 1;
     } else {
+      // Page full mid-line (or on the empty line itself): resume here.
       pos = pos + lineBytePos;
       break;
     }
@@ -261,25 +332,39 @@ void TxtReaderActivity::renderBook() {
   size_t offset = pageOffsets[currentPage];
   size_t nextOffset;
   currentPageLines.clear();
-  loadPageAtOffset(renderer, offset, currentPageLines, nextOffset);
+  loadPageAtOffset(renderer, offset, currentPageLines, &currentPageLineStartsParagraph, &currentPageLineEndsParagraph,
+                   nextOffset);
 
   renderer.clearScreen();
   renderPage(renderer);
+
+  if (pendingScreenshot) {
+    pendingScreenshot = false;
+    ScreenshotUtil::takeScreenshot(renderer);
+  }
 
   // Save progress
   saveProgress();
 }
 
 void TxtReaderActivity::renderPage(GfxRenderer& renderer) {
-  const int lineHeight = renderer.getLineHeight(cachedFontId);
   const int contentWidth = viewportWidth;
 
   // Render text lines with alignment
   auto renderLines = [&]() {
     int y = cachedOrientedMarginTop;
-    for (const auto& line : currentPageLines) {
+    const size_t lineCount = currentPageLines.size();
+    for (size_t i = 0; i < lineCount; ++i) {
+      const auto& line = currentPageLines[i];
+      const bool startsParagraph =
+          i < currentPageLineStartsParagraph.size() ? currentPageLineStartsParagraph[i] : false;
+      const bool endsParagraph = i < currentPageLineEndsParagraph.size() ? currentPageLineEndsParagraph[i] : true;
+      if (startsParagraph && i > 0) y += paragraphSpacingPx;
+
       if (!line.empty()) {
-        int x = cachedOrientedMarginLeft;
+        const int indent = startsParagraph ? paragraphIndentPx : 0;
+        int x = cachedOrientedMarginLeft + indent;
+        const int effectiveContentWidth = contentWidth - indent;
         const bool lineIsRtl = BidiUtils::startsWithRtl(line.c_str(), BidiUtils::RTL_PARAGRAPH_PROBE_DEPTH);
         uint8_t effectiveAlignment = cachedParagraphAlignment;
         if (lineIsRtl && (effectiveAlignment == CrossPointSettings::LEFT_ALIGN ||
@@ -289,23 +374,39 @@ void TxtReaderActivity::renderPage(GfxRenderer& renderer) {
         const int textWidth = renderer.getTextAdvanceX(cachedFontId, line.c_str(), EpdFontFamily::REGULAR);
 
         // Apply text alignment
+        int8_t letterSpacing = 0;
         switch (effectiveAlignment) {
           case CrossPointSettings::LEFT_ALIGN:
           default:
             break;
           case CrossPointSettings::CENTER_ALIGN: {
-            x = cachedOrientedMarginLeft + (contentWidth - textWidth) / 2;
+            x = cachedOrientedMarginLeft + indent + (effectiveContentWidth - textWidth) / 2;
             break;
           }
           case CrossPointSettings::RIGHT_ALIGN: {
             x = cachedOrientedMarginLeft + contentWidth - textWidth;
             break;
           }
-          case CrossPointSettings::JUSTIFIED:
+          case CrossPointSettings::JUSTIFIED: {
+            // Only wrapped continuations are stretched; a paragraph's last
+            // line and the page's last line (which may continue on the next
+            // page) stay ragged. The slack is spread between glyphs because
+            // character-wrapped Korean lines have few word gaps to widen.
+            const bool canJustify = !endsParagraph && i + 1 < lineCount;
+            const int gaps = txt_layout::utf8Length(line) - 1;
+            const int extra = effectiveContentWidth - textWidth;
+            if (canJustify && extra > 0 && gaps > 0) {
+              letterSpacing = static_cast<int8_t>(std::min(extra / gaps, 127));
+            }
             break;
+          }
         }
 
-        renderer.drawText(cachedFontId, x, y, line.c_str());
+        if (letterSpacing > 0) {
+          renderer.drawTextTracked(cachedFontId, x, y, line.c_str(), letterSpacing);
+        } else {
+          renderer.drawText(cachedFontId, x, y, line.c_str());
+        }
       }
       y += lineHeight;
     }
@@ -338,6 +439,184 @@ void TxtReaderActivity::renderStatusBar() const {
   }
   GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title);
 }
+
+// --- Reader menu -----------------------------------------------------------
+
+bool TxtReaderActivity::handleFormatInput() {
+  if (!initialized) return false;
+
+  if (automaticPageTurnActive) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+        ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
+      automaticPageTurnActive = false;
+      requestUpdate();
+      return true;
+    }
+    if (RenderLock::peek()) {
+      lastPageTurnTime = millis();
+      return false;
+    }
+    if (millis() - lastPageTurnTime >= pageTurnDuration) {
+      lastPageTurnTime = millis();
+      if (currentPage + 1 < totalPages) {
+        pageTurn(true);
+      } else {
+        automaticPageTurnActive = false;  // stop at the last page rather than leave the book
+      }
+      requestUpdate();
+      return true;
+    }
+  }
+
+  // Home-key boards have no front Confirm button: a Home-key hold opens the
+  // menu when that is the user's long-press function, as in the EPUB reader.
+  const bool homeKeyMenu =
+      mappedInput.wasHomeKeyHold() && SETTINGS.longPressMenuFunction == CrossPointSettings::LP_MENU_READER_MENU;
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || homeKeyMenu ||
+      ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
+    openReaderMenu();
+    return true;
+  }
+
+  // Long-press page jump chosen in the reader menu. Independent of the
+  // long-press button setting: the menu choice is the whole opt-in.
+  if (currentPageJumpOption > 0 && currentPageJumpOption < std::size(PAGE_JUMP_STEPS)) {
+    using Button = MappedInputManager::Button;
+    const int step = PAGE_JUMP_STEPS[currentPageJumpOption];
+    const bool swapFront = mappedInput.isNavDirectionSwapped();
+    const Button prevButtons[] = {Button::PageBack, swapFront ? Button::Right : Button::Left};
+    const Button nextButtons[] = {Button::PageForward, swapFront ? Button::Left : Button::Right};
+    const auto anyLongPressed = [&](const Button(&buttons)[2]) {
+      return mappedInput.wasLongPressed(buttons[0], PAGE_JUMP_HOLD_MS) ||
+             mappedInput.wasLongPressed(buttons[1], PAGE_JUMP_HOLD_MS);
+    };
+    if (anyLongPressed(prevButtons) || anyLongPressed(nextButtons)) {
+      // Both checks ran so a fired long press consumes its release either way.
+      skipPages(mappedInput.isPressed(nextButtons[0]) || mappedInput.isPressed(nextButtons[1]) ? step : -step);
+      requestUpdate();
+      return true;
+    }
+    if (SETTINGS.longPressButtonBehavior == CrossPointSettings::OFF) {
+      // Press-to-turn would fire before the hold can be measured, so while a
+      // jump step is active the page turns on the short release instead.
+      const auto anyPressed = [&](const Button(&buttons)[2]) {
+        return mappedInput.wasPressed(buttons[0]) || mappedInput.wasPressed(buttons[1]);
+      };
+      const auto anyReleased = [&](const Button(&buttons)[2]) {
+        return mappedInput.wasReleased(buttons[0]) || mappedInput.wasReleased(buttons[1]);
+      };
+      if (anyPressed(prevButtons) || anyPressed(nextButtons)) return true;
+      const bool prevReleased = anyReleased(prevButtons);
+      const bool nextReleased = anyReleased(nextButtons);
+      if (prevReleased || nextReleased) {
+        pageTurn(nextReleased);
+        requestUpdate();
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void TxtReaderActivity::openReaderMenu() {
+  const int progressPercent = totalPages > 0 ? clampPercent((currentPage + 1) * 100 / totalPages) : 0;
+  startActivityForResult(std::make_unique<TxtReaderMenuActivity>(
+                             renderer, mappedInput, txt->getTitle(), currentPage + 1, totalPages, progressPercent,
+                             SETTINGS.orientation, currentPageTurnOption, currentPageJumpOption, totalReadingSeconds()),
+                         [this](const ActivityResult& result) {
+                           const auto& menu = std::get<MenuResult>(result.data);
+                           if (SETTINGS.orientation != menu.orientation) {
+                             SETTINGS.orientation = menu.orientation;
+                             SETTINGS.saveToFile();
+                             ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+                             initialized =
+                                 false;  // the page index depends on the viewport; progress carries the byte offset
+                           }
+                           currentPageJumpOption = menu.pageJumpOption;
+                           toggleAutoPageTurn(menu.pageTurnOption);
+                           if (!result.isCancelled) {
+                             onReaderMenuConfirm(static_cast<TxtReaderMenuActivity::MenuAction>(menu.action));
+                           } else {
+                             requestUpdate();
+                           }
+                         });
+}
+
+void TxtReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption) {
+  currentPageTurnOption = selectedPageTurnOption;
+  if (selectedPageTurnOption == 0 || selectedPageTurnOption >= std::size(PAGE_TURN_RATES)) {
+    automaticPageTurnActive = false;
+    return;
+  }
+  lastPageTurnTime = millis();
+  pageTurnDuration = (1UL * 60 * 1000) / PAGE_TURN_RATES[selectedPageTurnOption];
+  automaticPageTurnActive = true;
+}
+
+void TxtReaderActivity::jumpToPercent(const int percent) {
+  if (totalPages <= 0) return;
+  currentPage = std::max(0, std::min(totalPages - 1, (totalPages * clampPercent(percent)) / 100));
+}
+
+void TxtReaderActivity::onReaderMenuConfirm(const TxtReaderMenuActivity::MenuAction action) {
+  using MA = TxtReaderMenuActivity::MenuAction;
+  switch (action) {
+    case MA::TEXT_SETTINGS:
+      startActivityForResult(std::make_unique<TextSettingsActivity>(renderer, mappedInput, &sdFontSystem.registry(),
+                                                                    TextSettingsActivity::Tab::Family),
+                             [this](const ActivityResult&) {
+                               // Any of font, size, spacing, margin, alignment, indent or
+                               // character wrap changes the pagination; rebuild from the
+                               // saved byte offset.
+                               initialized = false;
+                               openReaderMenu();
+                             });
+      return;
+    case MA::GO_TO_PERCENT: {
+      const int initialPercent = totalPages > 0 ? clampPercent((currentPage + 1) * 100 / totalPages) : 0;
+      startActivityForResult(
+          std::make_unique<EpubReaderPercentSelectionActivity>(renderer, mappedInput, initialPercent),
+          [this](const ActivityResult& result) {
+            if (result.isCancelled) {
+              openReaderMenu();
+            } else {
+              jumpToPercent(std::get<PercentResult>(result.data).percent);
+              requestUpdate();
+            }
+          });
+      return;
+    }
+    case MA::SCREENSHOT:
+      pendingScreenshot = true;
+      break;
+    case MA::GO_HOME:
+      onGoHome();
+      return;
+    case MA::RESET_READING_TIMER:
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_READING_TIMER),
+                                                                    tr(STR_RESET_READING_TIMER_PROMPT)),
+                             [this](const ActivityResult& result) {
+                               if (!result.isCancelled) resetReadingTimer();
+                               requestUpdate();
+                             });
+      return;
+    case MA::NIGHT_MODE:
+    case MA::AUTO_PAGE_TURN:
+    case MA::PAGE_JUMP_STEP:
+    case MA::ROTATE_SCREEN:
+      // Applied through the menu result (or in place by the menu itself).
+      break;
+  }
+  requestUpdate();
+}
+
+void TxtReaderActivity::onExit() {
+  automaticPageTurnActive = false;
+  ReaderActivity::onExit();
+}
+
+// --- Navigation --------------------------------------------------------------
 
 bool TxtReaderActivity::pageTurn(bool isForward) {
   // Ignore paging until initializeReader has established the page index
@@ -379,12 +658,26 @@ bool TxtReaderActivity::isAtEndOfBook() const { return initialized && currentPag
 
 void TxtReaderActivity::onReturnFromEndOfBook() { currentPage = totalPages > 0 ? totalPages - 1 : 0; }
 
+// --- Progress and page index cache -------------------------------------------
+
+// progress.bin: page (2 bytes, the upstream 1.6 layout) followed by the page's
+// byte offset (4 bytes). When the index is rebuilt for new text settings the
+// page number is meaningless, so the offset restores the position instead.
 void TxtReaderActivity::saveProgress() const {
-  uint8_t data[4];
+  // Past the end (the end-of-book sentinel) records the last page.
+  uint32_t offset = 0;
+  if (!pageOffsets.empty()) {
+    offset = currentPage < static_cast<int>(pageOffsets.size()) ? pageOffsets[currentPage] : pageOffsets.back();
+  }
+  uint8_t data[8];
   data[0] = currentPage & 0xFF;
   data[1] = (currentPage >> 8) & 0xFF;
   data[2] = 0;
   data[3] = 0;
+  data[4] = offset & 0xFF;
+  data[5] = (offset >> 8) & 0xFF;
+  data[6] = (offset >> 16) & 0xFF;
+  data[7] = (offset >> 24) & 0xFF;
   if (!ProgressFile::writeAtomic(txt->getCachePath(), data, sizeof(data))) {
     LOG_ERR("TRS", "Failed to save progress: page %d", currentPage);
   }
@@ -393,9 +686,17 @@ void TxtReaderActivity::saveProgress() const {
 void TxtReaderActivity::loadProgress() {
   HalFile f;
   if (Storage.openFileForRead("TRS", txt->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
-    if (f.read(data, 4) == 4) {
+    uint8_t data[8] = {};
+    const int n = f.read(data, sizeof(data));
+    if (n >= 4) {
       currentPage = data[0] + (data[1] << 8);
+      if (n >= 8) {
+        // Prefer the offset: it survives a re-pagination, the page number does not.
+        const uint32_t offset = static_cast<uint32_t>(data[4]) | (static_cast<uint32_t>(data[5]) << 8) |
+                                (static_cast<uint32_t>(data[6]) << 16) | (static_cast<uint32_t>(data[7]) << 24);
+        const auto it = std::upper_bound(pageOffsets.begin(), pageOffsets.end(), static_cast<size_t>(offset));
+        if (it != pageOffsets.begin()) currentPage = static_cast<int>(it - pageOffsets.begin()) - 1;
+      }
       if (currentPage >= totalPages) {
         currentPage = totalPages - 1;
       }
@@ -443,10 +744,17 @@ bool TxtReaderActivity::loadPageIndexCache() {
     return false;
   }
 
-  int32_t cachedLines;
-  serialization::readPod(f, cachedLines);
-  if (cachedLines != linesPerPage) {
-    LOG_DBG("TRS", "Cache lines per page mismatch, rebuilding");
+  int32_t cachedHeight;
+  serialization::readPod(f, cachedHeight);
+  if (cachedHeight != viewportHeight) {
+    LOG_DBG("TRS", "Cache viewport height mismatch, rebuilding");
+    return false;
+  }
+
+  int32_t cachedLineHeight;
+  serialization::readPod(f, cachedLineHeight);
+  if (cachedLineHeight != lineHeight) {
+    LOG_DBG("TRS", "Cache line height mismatch, rebuilding");
     return false;
   }
 
@@ -468,6 +776,23 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, alignment);
   if (alignment != cachedParagraphAlignment) {
     LOG_DBG("TRS", "Cache paragraph alignment mismatch, rebuilding");
+    return false;
+  }
+
+  // Korean layout: each changes where lines break or how tall pages are.
+  uint8_t layoutFlags;
+  serialization::readPod(f, layoutFlags);
+  const uint8_t currentFlags = static_cast<uint8_t>((cachedCharacterWrap ? 1 : 0) | (cachedParagraphIndent ? 2 : 0) |
+                                                    (cachedExtraParagraphSpacing ? 4 : 0));
+  if (layoutFlags != currentFlags) {
+    LOG_DBG("TRS", "Cache layout flags mismatch, rebuilding");
+    return false;
+  }
+
+  int32_t indentPx;
+  serialization::readPod(f, indentPx);
+  if (indentPx != paragraphIndentPx) {
+    LOG_DBG("TRS", "Cache indent mismatch, rebuilding");
     return false;
   }
 
@@ -500,10 +825,15 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, CACHE_VERSION);
   serialization::writePod(f, static_cast<uint32_t>(txt->getFileSize()));
   serialization::writePod(f, static_cast<int32_t>(viewportWidth));
-  serialization::writePod(f, static_cast<int32_t>(linesPerPage));
+  serialization::writePod(f, static_cast<int32_t>(viewportHeight));
+  serialization::writePod(f, static_cast<int32_t>(lineHeight));
   serialization::writePod(f, static_cast<int32_t>(cachedFontId));
   serialization::writePod(f, static_cast<int32_t>(cachedScreenMargin));
   serialization::writePod(f, cachedParagraphAlignment);
+  const uint8_t layoutFlags = static_cast<uint8_t>((cachedCharacterWrap ? 1 : 0) | (cachedParagraphIndent ? 2 : 0) |
+                                                   (cachedExtraParagraphSpacing ? 4 : 0));
+  serialization::writePod(f, layoutFlags);
+  serialization::writePod(f, static_cast<int32_t>(paragraphIndentPx));
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
 
   for (size_t offset : pageOffsets) {
