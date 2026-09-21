@@ -24,6 +24,7 @@ class Epub;
 #define MAX_WORD_SIZE 200
 
 class ChapterHtmlSlimParser {
+  friend struct ChapterHtmlSlimParserTestAccess;
   std::shared_ptr<Epub> epub;
   const std::string& filepath;
   GfxRenderer& renderer;

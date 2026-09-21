@@ -15,6 +15,7 @@
 class GfxRenderer;
 
 class ParsedText {
+  friend struct ParsedTextTestAccess;
   // Word text lives in wordStore (chunked bump arena, NUL-terminated entries);
   // words holds 8-byte handles into it. This replaces the former
   // std::deque<std::string>: per-word string objects, their SSO spills, and

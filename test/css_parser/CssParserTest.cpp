@@ -36,7 +36,7 @@ class CssParserTest : public ::testing::Test {
     fs::remove_all(directory_);
   }
 
-  std::string cachePath() const { return directory_.string(); }
+  std::string cachePath() const { return directory_.generic_string(); }
   fs::path cacheFile() const { return directory_ / "css_rules.cache"; }
   fs::path cacheTempFile() const { return directory_ / "css_rules.cache.tmp"; }
   fs::path cacheBackupFile() const { return directory_ / "css_rules.cache.bak"; }
@@ -219,7 +219,7 @@ TEST_F(CssParserTest, FailedPromotionRestoresTheOnlyBackupCache) {
   ASSERT_FALSE(fs::exists(cacheFile()));
   ASSERT_EQ(loadCss(writer, ".replacement { font-style: italic; }\n"), CssParser::ParseResult::Complete);
 
-  Storage.failNextRename(cacheTempFile().string(), cacheFile().string());
+  Storage.failNextRename(cacheTempFile().generic_string(), cacheFile().generic_string());
   EXPECT_FALSE(writer.saveToCache(true));
   EXPECT_TRUE(fs::exists(cacheFile()));
   EXPECT_FALSE(fs::exists(cacheTempFile()));

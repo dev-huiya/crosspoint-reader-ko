@@ -8,11 +8,38 @@
 #include <string>
 #include <vector>
 
-#define class struct
-#define private public
 #include "Epub/parsers/ChapterHtmlSlimParser.h"
-#undef private
-#undef class
+
+struct ChapterHtmlSlimParserTestAccess {
+  static void resetText(ChapterHtmlSlimParser& parser) { parser.currentTextBlock = std::make_unique<ParsedText>(false); }
+  static ParsedText& text(ChapterHtmlSlimParser& parser) { return *parser.currentTextBlock; }
+  static uint8_t linkId(const ChapterHtmlSlimParser& parser) { return parser.currentFootnoteLinkId; }
+  static const auto& footnotes(const ChapterHtmlSlimParser& parser) { return parser.pendingFootnotes; }
+  static int partWordBufferIndex(const ChapterHtmlSlimParser& parser) { return parser.partWordBufferIndex; }
+  static uint16_t& viewportWidth(ChapterHtmlSlimParser& parser) { return parser.viewportWidth; }
+  static uint16_t& viewportHeight(ChapterHtmlSlimParser& parser) { return parser.viewportHeight; }
+  static auto& tableRowCells(ChapterHtmlSlimParser& parser) { return parser.tableRowCells; }
+  static const auto& tableCellLines(const ChapterHtmlSlimParser& parser) { return parser.tableCellLines; }
+  static auto& completePageFn(ChapterHtmlSlimParser& parser) { return parser.completePageFn; }
+  static std::unique_ptr<Page>& currentPage(ChapterHtmlSlimParser& parser) { return parser.currentPage; }
+  static void finishTableRow(ChapterHtmlSlimParser& parser) { parser.finishTableRow(); }
+  static void makePages(ChapterHtmlSlimParser& parser) { parser.makePages(); }
+  static void start(ChapterHtmlSlimParser& parser, const XML_Char* name, const XML_Char** attributes) {
+    ChapterHtmlSlimParser::startElement(&parser, name, attributes);
+  }
+  static void characters(ChapterHtmlSlimParser& parser, const XML_Char* data, int length) {
+    ChapterHtmlSlimParser::characterData(&parser, data, length);
+  }
+  static void end(ChapterHtmlSlimParser& parser, const XML_Char* name) {
+    ChapterHtmlSlimParser::endElement(&parser, name);
+  }
+};
+
+struct ParsedTextTestAccess {
+  static const auto& linkIds(const ParsedText& text) { return text.wordLinkIds; }
+};
+
+using Access = ChapterHtmlSlimParserTestAccess;
 
 namespace {
 
@@ -41,7 +68,7 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
                                nullptr,
                                &cssParser};
 
-  void SetUp() override { parser.currentTextBlock = std::make_unique<ParsedText>(false); }
+  void SetUp() override { Access::resetText(parser); }
 };
 
 TEST_F(ChapterHtmlSlimParserTest, RubySurvivesPartialParagraphExtraction) {
@@ -72,9 +99,9 @@ TEST_F(ChapterHtmlSlimParserTest, RubySurvivesPartialParagraphExtraction) {
 }
 
 TEST_F(ChapterHtmlSlimParserTest, UnequalTableCellsAndRubySurvivePageBreaks) {
-  parser.viewportWidth = 240;
-  parser.viewportHeight = 32;
-  parser.tableRowCells.reserve(2);
+  Access::viewportWidth(parser) = 240;
+  Access::viewportHeight(parser) = 32;
+  Access::tableRowCells(parser).reserve(2);
   std::multiset<std::string> expected;
   for (int column = 0; column < 2; ++column) {
     auto cell = std::make_unique<ParsedText>(false);
@@ -84,7 +111,7 @@ TEST_F(ChapterHtmlSlimParserTest, UnequalTableCellsAndRubySurvivePageBreaks) {
       cell->addWord(word, EpdFontFamily::REGULAR);
     }
     if (column == 0) cell->setRubyGroupAt(0, 2, "reading");
-    parser.tableRowCells.push_back(std::move(cell));
+    Access::tableRowCells(parser).push_back(std::move(cell));
   }
   std::multiset<std::string> actual;
   unsigned pages = 0;
@@ -96,19 +123,19 @@ TEST_F(ChapterHtmlSlimParserTest, UnequalTableCellsAndRubySurvivePageBreaks) {
       const auto& line = static_cast<const PageLine&>(*element);
       const auto& block = *line.getBlock();
       ASSERT_TRUE(block.valid());
-      EXPECT_LE(element->yPos + 16 + block.getRubyShift(12), parser.viewportHeight);
+      EXPECT_LE(element->yPos + 16 + block.getRubyShift(12), Access::viewportHeight(parser));
       rubyLines += block.hasRuby();
       for (uint16_t word = 0; word < block.wordCount(); ++word) actual.insert(block.wordText(word));
     }
   };
-  parser.completePageFn = inspect;
-  parser.finishTableRow();
-  ASSERT_NE(parser.currentPage, nullptr);
-  inspect(std::move(parser.currentPage), 0, 0, 0);
+  Access::completePageFn(parser) = inspect;
+  Access::finishTableRow(parser);
+  ASSERT_NE(Access::currentPage(parser), nullptr);
+  inspect(std::move(Access::currentPage(parser)), 0, 0, 0);
   EXPECT_GT(pages, 2u);
   EXPECT_EQ(rubyLines, 1u);
   EXPECT_EQ(actual, expected);
-  for (const auto& lines : parser.tableCellLines) EXPECT_TRUE(lines.empty());
+  for (const auto& lines : Access::tableCellLines(parser)) EXPECT_TRUE(lines.empty());
 }
 
 TEST_F(ChapterHtmlSlimParserTest, PageImageDeserializeRejectsMissingImageBlock) {
@@ -129,24 +156,24 @@ TEST_P(ChapterHtmlSlimParserTest, KeepsCssVerticalAlignAndInternalLinkMetadata) 
   const char* expectedHref = "#note-target";
   const XML_Char* attributes[] = {"href", expectedHref, "style", verticalAlign, nullptr};
 
-  ChapterHtmlSlimParser::startElement(&parser, "a", attributes);
-  const uint8_t linkId = parser.currentFootnoteLinkId;
+  Access::start(parser, "a", attributes);
+  const uint8_t linkId = Access::linkId(parser);
   ASSERT_NE(linkId, 0u);
-  ChapterHtmlSlimParser::characterData(&parser, "1", 1);
-  ChapterHtmlSlimParser::endElement(&parser, "a");
+  Access::characters(parser, "1", 1);
+  Access::end(parser, "a");
 
-  ASSERT_EQ(parser.currentTextBlock->size(), 1u);
-  const auto style = parser.currentTextBlock->getWordStyleAt(0);
+  ASSERT_EQ(Access::text(parser).size(), 1u);
+  const auto style = Access::text(parser).getWordStyleAt(0);
   const auto expectedStyle =
       std::string(verticalAlign).find("super") != std::string::npos ? EpdFontFamily::SUP : EpdFontFamily::SUB;
   EXPECT_NE(static_cast<uint8_t>(style) & static_cast<uint8_t>(expectedStyle), 0u);
 
-  ASSERT_EQ(parser.pendingFootnotes.size(), 1u);
-  const FootnoteEntry& footnote = parser.pendingFootnotes.front().second;
+  ASSERT_EQ(Access::footnotes(parser).size(), 1u);
+  const FootnoteEntry& footnote = Access::footnotes(parser).front().second;
   EXPECT_STREQ(footnote.href, expectedHref);
-  ASSERT_EQ(parser.currentTextBlock->wordLinkIds.size(), 1u);
-  EXPECT_EQ(parser.currentTextBlock->wordLinkIds.front(), linkId);
-  EXPECT_TRUE(parser.currentTextBlock->linkTargetMatches(linkId, expectedHref));
+  ASSERT_EQ(ParsedTextTestAccess::linkIds(Access::text(parser)).size(), 1u);
+  EXPECT_EQ(ParsedTextTestAccess::linkIds(Access::text(parser)).front(), linkId);
+  EXPECT_TRUE(Access::text(parser).linkTargetMatches(linkId, expectedHref));
 }
 
 INSTANTIATE_TEST_SUITE_P(CssVerticalAlign, ChapterHtmlSlimParserTest,
@@ -156,47 +183,47 @@ TEST_F(ChapterHtmlSlimParserTest, ParagraphWithHiddenAttributeShouldBeSkipped) {
   const XML_Char* attributes[] = {"hidden", "hidden", nullptr};
 
   parser.beginParse();
-  ChapterHtmlSlimParser::startElement(&parser, "p", attributes);
-  ChapterHtmlSlimParser::characterData(&parser, "[HIDDEN]", 8);
+  Access::start(parser, "p", attributes);
+  Access::characters(parser, "[HIDDEN]", 8);
 
-  ASSERT_EQ(parser.partWordBufferIndex, 0);
+  ASSERT_EQ(Access::partWordBufferIndex(parser), 0);
 }
 
 TEST_F(ChapterHtmlSlimParserTest, HeaderWithHiddenAttributeShouldBeSkipped) {
   const XML_Char* attributes[] = {"hidden", "hidden", nullptr};
 
   parser.beginParse();
-  ChapterHtmlSlimParser::startElement(&parser, "h1", attributes);
-  ChapterHtmlSlimParser::characterData(&parser, "[HIDDEN]", 8);
+  Access::start(parser, "h1", attributes);
+  Access::characters(parser, "[HIDDEN]", 8);
 
-  ASSERT_EQ(parser.partWordBufferIndex, 0);
+  ASSERT_EQ(Access::partWordBufferIndex(parser), 0);
 }
 
 TEST_F(ChapterHtmlSlimParserTest, SpanWithHiddenAttributeShouldBeSkipped) {
   const XML_Char* attributes[] = {"hidden", "hidden", nullptr};
 
   parser.beginParse();
-  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
-  ChapterHtmlSlimParser::characterData(&parser, "Before ", 7);
-  ChapterHtmlSlimParser::startElement(&parser, "span", attributes);
-  ChapterHtmlSlimParser::characterData(&parser, "[HIDDEN]", 8);
-  ChapterHtmlSlimParser::endElement(&parser, "span");
-  ChapterHtmlSlimParser::characterData(&parser, " After ", 7);
+  Access::start(parser, "p", nullptr);
+  Access::characters(parser, "Before ", 7);
+  Access::start(parser, "span", attributes);
+  Access::characters(parser, "[HIDDEN]", 8);
+  Access::end(parser, "span");
+  Access::characters(parser, " After ", 7);
 
-  ASSERT_EQ(parser.currentTextBlock->size(), 2);
-  ASSERT_EQ(parser.currentTextBlock->wordAt(0), "Before");
-  ASSERT_EQ(parser.currentTextBlock->wordAt(1), "After");
+  ASSERT_EQ(Access::text(parser).size(), 2);
+  ASSERT_EQ(Access::text(parser).wordAt(0), "Before");
+  ASSERT_EQ(Access::text(parser).wordAt(1), "After");
 }
 
 TEST_F(ChapterHtmlSlimParserTest, DivWithHiddenAttributeContentShouldBeSkipped) {
   const XML_Char* attributes[] = {"hidden", "hidden", nullptr};
 
   parser.beginParse();
-  ChapterHtmlSlimParser::startElement(&parser, "div", attributes);
-  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
-  ChapterHtmlSlimParser::characterData(&parser, "[HIDDEN]", 8);
+  Access::start(parser, "div", attributes);
+  Access::start(parser, "p", nullptr);
+  Access::characters(parser, "[HIDDEN]", 8);
 
-  ASSERT_EQ(parser.partWordBufferIndex, 0);
+  ASSERT_EQ(Access::partWordBufferIndex(parser), 0);
 }
 
 }  // namespace
@@ -288,14 +315,14 @@ TEST(TextSpacingLayout, CachedPageRestoresSpacing) {
 TEST_F(ChapterHtmlSlimParserTest, ParserAppliesTextSpacingToParagraphs) {
   parser.setTextSpacing(-1, 150);
   parser.beginParse();
-  ChapterHtmlSlimParser::startElement(&parser, "p", nullptr);
+  Access::start(parser, "p", nullptr);
   const std::string text = "\xe4\xb8\x80\xe4\xba\x8c\xe4\xb8\x89 \xe5\x9b\x9b\xe4\xba\x94";  // 一二三 四五
-  ChapterHtmlSlimParser::characterData(&parser, text.c_str(), static_cast<int>(text.size()));
-  ChapterHtmlSlimParser::endElement(&parser, "p");
-  parser.makePages();
-  ASSERT_NE(parser.currentPage, nullptr);
+  Access::characters(parser, text.c_str(), static_cast<int>(text.size()));
+  Access::end(parser, "p");
+  Access::makePages(parser);
+  ASSERT_NE(Access::currentPage(parser), nullptr);
   unsigned lines = 0;
-  for (const auto& element : parser.currentPage->elements) {
+  for (const auto& element : Access::currentPage(parser)->elements) {
     if (element->getTag() != TAG_PageLine) continue;
     const auto& block = *static_cast<const PageLine&>(*element).getBlock();
     ++lines;

@@ -24,16 +24,27 @@ FetchContent_MakeAvailable(googletest)
 
 set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
+# Host tests use the same bundled Expat sources as PlatformIO. In particular,
+# Windows cannot rely on a system-provided expat library or include directory.
+add_library(expat STATIC
+  ${REPO_ROOT}/lib/expat/xmlparse.c
+  ${REPO_ROOT}/lib/expat/xmlrole.c
+  ${REPO_ROOT}/lib/expat/xmltok.c
+)
+target_include_directories(expat PUBLIC ${REPO_ROOT}/lib/expat)
+target_compile_definitions(expat PRIVATE XML_GE=0 XML_CONTEXT_BYTES=1024)
+target_compile_definitions(expat PUBLIC XML_STATIC)
+
 add_library(crosspoint_test_common INTERFACE)
 target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}
   ${REPO_ROOT}/lib
 )
-target_compile_options(crosspoint_test_common INTERFACE
-  -Wall
-  -Wextra
-  -pedantic
-)
+if(MSVC)
+  target_compile_options(crosspoint_test_common INTERFACE /W4 /utf-8 /Zc:preprocessor)
+else()
+  target_compile_options(crosspoint_test_common INTERFACE -Wall -Wextra -pedantic)
+endif()
 
 enable_testing()
 include(GoogleTest)
