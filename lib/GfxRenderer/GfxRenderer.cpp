@@ -692,6 +692,21 @@ void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* te
 void GfxRenderer::drawText(const int fontId, const int x, const int y, const char* text, const bool black,
                            const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir,
                            const int8_t tracking) const {
+  drawTextImpl(fontId, x, y, text, black, style, baseDir, tracking, 0);
+}
+
+void GfxRenderer::drawTextTracked(const int fontId, const int x, const int y, const char* text,
+                                  const int8_t letterSpacing, const bool black, const EpdFontFamily::Style style,
+                                  const BidiUtils::BidiBaseDir baseDir) const {
+  drawTextImpl(fontId, x, y, text, black, style, baseDir, 0, letterSpacing);
+}
+
+// `tracking` is the reader's character spacing (never beside a space, see
+// trackingBetween); `letterSpacing` is the KO TXT justification step, added
+// after every glyph including spaces so the line reaches the measured width.
+void GfxRenderer::drawTextImpl(const int fontId, const int x, const int y, const char* text, const bool black,
+                               const EpdFontFamily::Style style, const BidiUtils::BidiBaseDir baseDir,
+                               const int8_t tracking, const int8_t letterSpacing) const {
   // cannot draw a NULL / empty string
   if (text == nullptr || *text == '\0') {
     return;
@@ -776,6 +791,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     lastBaseWidth = glyph ? glyph->width : 0;
     lastBaseTop = glyph ? glyph->top : 0;
     prevAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
+    if (letterSpacing != 0) prevAdvanceFP += fp4::fromPixel(letterSpacing);
 
     const bool isSupSub = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
     if (isSupSub) {
