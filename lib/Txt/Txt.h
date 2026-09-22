@@ -24,9 +24,12 @@ class Txt {
   void setupCacheDir() const;
   bool clearCache() const;
 
-  // Cover image support - looks for cover.bmp/jpg/jpeg/png in same folder as txt file
+  // Cover image support. A missing cover is checked again only when the book opens.
   [[nodiscard]] std::string getCoverBmpPath() const;
-  [[nodiscard]] bool generateCoverBmp() const;
+  [[nodiscard]] std::string getThumbBmpPath() const;
+  [[nodiscard]] std::string getThumbBmpPath(int height) const;
+  [[nodiscard]] bool generateCoverBmp(bool bookOpen = false) const;
+  [[nodiscard]] bool generateThumbBmp(int height) const;
   [[nodiscard]] std::string findCoverImage() const;
 
   // Read content from file

@@ -10,6 +10,7 @@
 #include <LibraryBuilder.h>
 #include <LibraryIndexFile.h>
 #include <Memory.h>
+#include <Txt.h>
 #include <Utf8.h>
 #include <Xtc.h>
 
@@ -215,6 +216,14 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             coverRendered = false;
             requestUpdate();
           }
+        } else if (FsHelpers::hasTxtExtension(book.path)) {
+          Txt txt(book.path, "/.crosspoint");
+          if (!txt.generateThumbBmp(thumbHeight)) {
+            RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
+            book.coverBmpPath = "";
+          }
+          coverRendered = false;
+          requestUpdate();
         }
       }
     }

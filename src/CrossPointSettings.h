@@ -17,6 +17,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   friend class PersistableStore<CrossPointSettings>;
 
  public:
+  enum class ButtonAction : uint8_t {
+    None, Back, Confirm, Up, Down, Left, Right, Home, PageBack, PageForward,
+    ChapterBack, ChapterForward, ReaderMenu, Rotate, Sleep, LightToggle,
+    Refresh, Footnotes, Bookmark, Dictionary, KoSync, FileBrowser, Count
+  };
+  static constexpr uint8_t BUTTON_COUNT = 8;  // SDK indices 0..6, then capacitive Home.
+  static constexpr uint8_t PRESS_COUNT = 3;   // short, long, double.
+  enum PressKind : uint8_t { SHORT = 0, LONG = 1, DOUBLE = 2 };
   enum SLEEP_SCREEN_MODE {
     DARK = 0,
     LIGHT = 1,
@@ -279,6 +287,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontButtonLayout = BACK_CONFIRM_LEFT_RIGHT;
   uint8_t sideButtonLayout = PREV_NEXT;
   uint8_t frontButtonFollowOrientation = 0;
+  uint8_t buttonBindings[BUTTON_COUNT][PRESS_COUNT]{};
+  bool buttonBindingsReady = false;
+  void ensureButtonBindings();
+  ButtonAction buttonAction(uint8_t button, PressKind kind) const {
+    return static_cast<ButtonAction>(buttonBindings[button][kind]);
+  }
   // Front button remap (logical -> hardware)
   // Used by MappedInputManager to translate logical buttons into physical front buttons.
   uint8_t frontButtonBack = FRONT_HW_BACK;
@@ -359,6 +373,15 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Which gestures turn the page in each direction (PAGE_TURN_GESTURE).
   uint8_t pageTurnGesture = SWIPE_ONLY;
   uint8_t previousPageGesture = SWIPE_ONLY;
+  // Reader tap-zone preset (ReaderTouchZones.h).
+  uint8_t touchZoneLayout = 0;
+  // True when reader taps turn pages, so the tap-zone preset applies.
+  bool readerTapZonesActive() const {
+    const auto taps = [](const uint8_t gesture) {
+      return gesture == TAP_AND_SWIPE || gesture == TAP_ONLY || gesture == INVERTED_TAP;
+    };
+    return touchReaderControls && (taps(pageTurnGesture) || taps(previousPageGesture));
+  }
   // Reader menu open gesture (SHOW_READER_MENU: off / center tap / bottom-edge
   // up-swipe). Only surfaced on home-key boards, where Home is the capacitive
   // key and the bottom edge is free; elsewhere it stays at the Tap default.

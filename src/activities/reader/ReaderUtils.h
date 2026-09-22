@@ -10,6 +10,7 @@
 #include <string_view>
 
 #include "MappedInputManager.h"
+#include "ReaderTouchZones.h"
 #include "activities/ActivityManager.h"
 
 namespace ReaderUtils {
@@ -35,6 +36,10 @@ inline bool isRtlBookLanguage(std::string_view tag) {
   const auto second = std::tolower(static_cast<unsigned char>(tag[1]));
   return (first == 'h' && second == 'e') || (first == 'i' && second == 'w') || (first == 'a' && second == 'r') ||
          (first == 'f' && second == 'a');
+}
+
+inline ReaderTapZone classifyReaderTap(const GfxRenderer& renderer, int x, int y) {
+  return readerTapZone(renderer.getScreenWidth(), renderer.getScreenHeight(), x, y, SETTINGS.touchZoneLayout);
 }
 
 inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
@@ -118,43 +123,42 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
     return result;
   }
 
-  const int width = renderer.getScreenWidth();
-  const int height = renderer.getScreenHeight();
-  // The centered reader-menu tap target (isTouchMenuTap below) keeps priority
-  // over the page-turn zones.
-  if (SETTINGS.showReaderMenu == CrossPointSettings::READER_MENU_TAP && x >= width / 3 && x < width - width / 3 &&
-      y >= height / 3 && y < height - height / 3) {
+  // The tap-zone preset decides where a tap lands; the per-direction gesture
+  // settings decide which directions accept taps. Menu taps belong to
+  // isTouchMenuTap(). A sole tap-enabled direction takes both page zones.
+  const ReaderTapZone zone = classifyReaderTap(renderer, x, y);
+  if (zone != ReaderTapZone::Previous && zone != ReaderTapZone::Next) {
     return result;
   }
-
-  // Give the whole page to the sole tap-enabled direction. When both accept
-  // taps, split at the left third. RTL books and Inverted Tap each reverse
-  // the shared zones.
+  // RTL books reverse only the left/right presets.
+  const bool horizontalLayout = SETTINGS.touchZoneLayout == 0 || SETTINGS.touchZoneLayout == 3;
   const bool inverted = (SETTINGS.pageTurnGesture == CrossPointSettings::INVERTED_TAP ||
-                         SETTINGS.previousPageGesture == CrossPointSettings::INVERTED_TAP) != rtlBook;
-  const bool nextZone = inverted ? x < (width * 2) / 3 : x >= width / 3;
+                         SETTINGS.previousPageGesture == CrossPointSettings::INVERTED_TAP) !=
+                        (rtlBook && horizontalLayout);
+  const bool nextZone = (zone == ReaderTapZone::Next) != inverted;
   result.next = nextTaps && (!prevTaps || nextZone);
   result.prev = prevTaps && (!nextTaps || !nextZone);
   result.heldMs = gpio.lastTouchHeldMs();
   return result;
 }
 
-// Tap in the center third of the screen: the tap path into the reader menu on
-// every touch board. detectTouchPageTurn() excludes this centered rectangle,
-// so it remains free in tap mode. The Off/Swipe Up
+// Tap path into the reader menu on every touch board: the tap-zone preset's
+// menu zone while taps turn pages, otherwise the center third of the screen
+// (swipes turn the pages then, so the whole surface is free). The Off/Swipe Up
 // alternatives are only surfaced on home-key boards (SettingsList), where the
 // menu stays reachable through the key's long-press function.
 inline bool isTouchMenuTap(const GfxRenderer& renderer, const MappedInputManager& input) {
   if (!input.hasTouch()) return false;
-  if (SETTINGS.showReaderMenu != CrossPointSettings::READER_MENU_TAP) return false;
+  // With tap page turns on, the tap-zone preset's menu zone is the menu target.
+  const bool zoneMenu = SETTINGS.readerTapZonesActive();
+  if (!zoneMenu && SETTINGS.showReaderMenu != CrossPointSettings::READER_MENU_TAP) return false;
   int x = 0;
   int y = 0;
   if (!input.wasScreenTapped(x, y)) return false;
+  if (zoneMenu) return classifyReaderTap(renderer, x, y) == ReaderTapZone::Menu;
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
-  const int zoneWidth = width / 3;
-  const int zoneHeight = height / 3;
-  return x >= zoneWidth && x < width - zoneWidth && y >= zoneHeight && y < height - zoneHeight;
+  return x >= width / 3 && x < width - width / 3 && y >= height / 3 && y < height - height / 3;
 }
 
 // Reader menu opens on the menu edge-swipe or a center-third tap. Home-key

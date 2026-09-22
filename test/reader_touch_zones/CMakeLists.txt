@@ -1,0 +1,4 @@
+add_executable(ReaderTouchZonesTest ReaderTouchZonesTest.cpp)
+target_include_directories(ReaderTouchZonesTest PRIVATE ${REPO_ROOT}/src/activities/reader)
+target_link_libraries(ReaderTouchZonesTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(ReaderTouchZonesTest)

@@ -3,6 +3,9 @@
 #include <FsHelpers.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
+#include <PngToBmpConverter.h>
+
+#include <string_view>
 
 Txt::Txt(std::string path, std::string cacheBasePath)
     : filepath(std::move(path)), cacheBasePath(std::move(cacheBasePath)) {
@@ -68,27 +71,19 @@ std::string Txt::findCoverImage() const {
   // Get the base filename without extension (e.g., "mybook" from "/books/mybook.txt")
   std::string baseName = getTitle();
 
-  // Image extensions to try
-  const char* extensions[] = {".bmp", ".jpg", ".jpeg", ".png", ".BMP", ".JPG", ".JPEG", ".PNG"};
-
-  // First priority: look for image with same name as txt file (e.g., mybook.jpg)
-  for (const auto& ext : extensions) {
-    std::string coverPath = folder + "/" + baseName + ext;
-    if (Storage.exists(coverPath.c_str())) {
-      LOG_DBG("TXT", "Found matching cover image: %s", coverPath.c_str());
-      return coverPath;
-    }
-  }
-
-  // Fallback: look for cover image files
-  const char* coverNames[] = {"cover", "Cover", "COVER"};
-  for (const auto& name : coverNames) {
-    for (const auto& ext : extensions) {
-      std::string coverPath = folder + "/" + std::string(name) + ext;
-      if (Storage.exists(coverPath.c_str())) {
-        LOG_DBG("TXT", "Found fallback cover image: %s", coverPath.c_str());
-        return coverPath;
-      }
+  // One bounded directory pass, without retaining its entries in RAM.
+  auto dir = Storage.open(folder.c_str());
+  if (!dir || !dir.isDirectory()) return "";
+  char name[128];
+  for (auto entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    if (entry.isDirectory()) continue;
+    entry.getName(name, sizeof(name));
+    const std::string_view candidate{name};
+    const size_t dot = candidate.find_last_of('.');
+    if (dot == std::string_view::npos || candidate.substr(0, dot) != baseName) continue;
+    if (FsHelpers::hasBmpExtension(candidate) || FsHelpers::hasJpgExtension(candidate) ||
+        FsHelpers::hasPngExtension(candidate)) {
+      return folder + (folder == "/" ? "" : "/") + name;
     }
   }
 
@@ -97,17 +92,33 @@ std::string Txt::findCoverImage() const {
 
 std::string Txt::getCoverBmpPath() const { return cachePath + "/cover.bmp"; }
 
-bool Txt::generateCoverBmp() const {
+std::string Txt::getThumbBmpPath() const { return cachePath + "/thumb_[HEIGHT].bmp"; }
+
+std::string Txt::getThumbBmpPath(int height) const { return cachePath + "/thumb_" + std::to_string(height) + ".bmp"; }
+
+bool Txt::generateCoverBmp(bool bookOpen) const {
   // Already generated, return true
   if (Storage.exists(getCoverBmpPath().c_str())) {
     return true;
   }
 
+  const std::string missingPath = cachePath + "/cover.missing";
+  if (!bookOpen && Storage.exists(missingPath.c_str())) return false;
+  const auto markAttempted = [this, &missingPath]() {
+    setupCacheDir();
+    HalFile missing;
+    if (!Storage.openFileForWrite("TXT", missingPath, missing))
+      LOG_ERR("TXT", "Failed to cache unavailable cover state");
+  };
+
   std::string coverImagePath = findCoverImage();
   if (coverImagePath.empty()) {
     LOG_DBG("TXT", "No cover image found for TXT file");
+    markAttempted();
     return false;
   }
+
+  if (Storage.exists(missingPath.c_str())) Storage.remove(missingPath.c_str());
 
   // Setup cache directory
   setupCacheDir();
@@ -117,15 +128,23 @@ bool Txt::generateCoverBmp() const {
     LOG_DBG("TXT", "Copying BMP cover image to cache");
     HalFile src, dst;
     if (!Storage.openFileForRead("TXT", coverImagePath, src)) {
+      markAttempted();
       return false;
     }
     if (!Storage.openFileForWrite("TXT", getCoverBmpPath(), dst)) {
+      markAttempted();
       return false;
     }
-    uint8_t buffer[1024];
+    uint8_t buffer[128];
     while (src.available()) {
       size_t bytesRead = src.read(buffer, sizeof(buffer));
-      dst.write(buffer, bytesRead);
+      if (!bytesRead || dst.write(buffer, bytesRead) != bytesRead) {
+        src.close();
+        dst.close();
+        Storage.remove(getCoverBmpPath().c_str());
+        markAttempted();
+        return false;
+      }
     }
     LOG_DBG("TXT", "Copied BMP cover to cache");
     return true;
@@ -134,25 +153,74 @@ bool Txt::generateCoverBmp() const {
     LOG_DBG("TXT", "Generating BMP from JPG cover image");
     HalFile coverJpg, coverBmp;
     if (!Storage.openFileForRead("TXT", coverImagePath, coverJpg)) {
+      markAttempted();
       return false;
     }
     if (!Storage.openFileForWrite("TXT", getCoverBmpPath(), coverBmp)) {
+      markAttempted();
       return false;
     }
     const bool success = JpegToBmpConverter::jpegFileToBmpStream(coverJpg, coverBmp);
 
     if (!success) {
       LOG_ERR("TXT", "Failed to generate BMP from JPG cover image");
+      coverJpg.close();
+      coverBmp.close();
       Storage.remove(getCoverBmpPath().c_str());
+      markAttempted();
     } else {
       LOG_DBG("TXT", "Generated BMP from JPG cover image");
     }
     return success;
+  } else if (FsHelpers::hasPngExtension(coverImagePath)) {
+    HalFile coverPng, coverBmp;
+    if (!Storage.openFileForRead("TXT", coverImagePath, coverPng) ||
+        !Storage.openFileForWrite("TXT", getCoverBmpPath(), coverBmp)) {
+      markAttempted();
+      return false;
+    }
+    const bool success = PngToBmpConverter::pngFileToBmpStream(coverPng, coverBmp);
+    if (!success) {
+      LOG_ERR("TXT", "Failed to generate BMP from PNG cover image");
+      coverPng.close();
+      coverBmp.close();
+      Storage.remove(getCoverBmpPath().c_str());
+      markAttempted();
+    }
+    return success;
   }
 
-  // PNG files are not supported (would need a PNG decoder)
-  LOG_ERR("TXT", "Cover image format not supported (only BMP/JPG/JPEG)");
+  LOG_ERR("TXT", "Cover image format not supported");
+  markAttempted();
   return false;
+}
+
+bool Txt::generateThumbBmp(int height) const {
+  const std::string thumbPath = getThumbBmpPath(height);
+  if (Storage.exists(thumbPath.c_str())) return true;
+  std::string imagePath = findCoverImage();
+  if (imagePath.empty() && Storage.exists(getCoverBmpPath().c_str())) imagePath = getCoverBmpPath();
+  if (imagePath.empty()) return false;
+  HalFile image, thumb;
+  if (!Storage.openFileForRead("TXT", imagePath, image) ||
+      !Storage.openFileForWrite("TXT", thumbPath, thumb)) return false;
+  bool success = false;
+  if (FsHelpers::hasJpgExtension(imagePath)) {
+    success = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(image, thumb, height * 3 / 5, height);
+  } else if (FsHelpers::hasPngExtension(imagePath)) {
+    success = PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(image, thumb, height * 3 / 5, height);
+  } else if (FsHelpers::hasBmpExtension(imagePath)) {
+    uint8_t buffer[128];
+    success = true;
+    while (image.available()) {
+      const size_t read = image.read(buffer, sizeof(buffer));
+      if (!read || thumb.write(buffer, read) != read) { success = false; break; }
+    }
+  }
+  image.close();
+  thumb.close();
+  if (!success) Storage.remove(thumbPath.c_str());
+  return success;
 }
 
 bool Txt::clearCache() const {

@@ -366,26 +366,29 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         SettingInfo::Enum(StrId::STR_READER_MENU_STYLE, &CrossPointSettings::readerMenuStyle,
                           {StrId::STR_MENU_STYLE_LIST, StrId::STR_MENU_STYLE_TOOLBAR}, "readerMenuStyle",
                           StrId::STR_CAT_READER),
+        SettingInfo::Enum(StrId::STR_TOUCH_ZONE_LAYOUT, &CrossPointSettings::touchZoneLayout,
+                          {StrId::STR_TOUCH_ZONE_1, StrId::STR_TOUCH_ZONE_2, StrId::STR_TOUCH_ZONE_3,
+                           StrId::STR_TOUCH_ZONE_4}, "touchZoneLayout"),
         // --- Controls ---
         SettingInfo::Enum(StrId::STR_SIDE_BTN_LAYOUT, &CrossPointSettings::sideButtonLayout,
                           {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV, StrId::STR_DISABLED, StrId::STR_NEXT_NEXT,
                            StrId::STR_PREV_PREV},
                           "sideButtonLayout", StrId::STR_CAT_CONTROLS),
         SettingInfo::Toggle(StrId::STR_TOUCH_READER_CONTROLS, &CrossPointSettings::touchReaderControls,
-                            "touchReaderControls", StrId::STR_CAT_CONTROLS),
+                            "touchReaderControls", StrId::STR_CAT_READER),
         SettingInfo::Enum(StrId::STR_NEXT_PAGE_GESTURE, &CrossPointSettings::pageTurnGesture,
                           {StrId::STR_TAP_AND_SWIPE, StrId::STR_TAP_ONLY, StrId::STR_SWIPE_ONLY,
                            StrId::STR_INVERTED_TAP, StrId::STR_DISABLED},
-                          "pageTurnGesture", StrId::STR_CAT_CONTROLS),
+                          "pageTurnGesture", StrId::STR_CAT_READER),
         SettingInfo::Enum(StrId::STR_PREV_PAGE_GESTURE, &CrossPointSettings::previousPageGesture,
                           {StrId::STR_TAP_AND_SWIPE, StrId::STR_TAP_ONLY, StrId::STR_SWIPE_ONLY,
                            StrId::STR_INVERTED_TAP, StrId::STR_DISABLED},
-                          "previousPageGesture", StrId::STR_CAT_CONTROLS),
+                          "previousPageGesture", StrId::STR_CAT_READER),
         // Persisted under the legacy "tapForReaderMenu" key: old saves map
         // 0 = Off, 1 = Tap.
         SettingInfo::Enum(StrId::STR_SHOW_READER_MENU, &CrossPointSettings::showReaderMenu,
                           {StrId::STR_STATE_OFF, StrId::STR_STATE_TAP, StrId::STR_STATE_SWIPE_UP}, "tapForReaderMenu",
-                          StrId::STR_CAT_CONTROLS),
+                          StrId::STR_CAT_READER),
         SettingInfo::Toggle(StrId::STR_FRONT_BTN_FOLLOW_ORIENTATION, &CrossPointSettings::frontButtonFollowOrientation,
                             "frontButtonFollowOrientation", StrId::STR_CAT_CONTROLS),
         SettingInfo::Enum(StrId::STR_LONG_PRESS_BEHAVIOR, &CrossPointSettings::longPressButtonBehavior,
@@ -559,7 +562,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            [](const SettingInfo& s) {
                              return s.nameId == StrId::STR_TOUCH_READER_CONTROLS ||
                                     s.nameId == StrId::STR_NEXT_PAGE_GESTURE ||
-                                    s.nameId == StrId::STR_PREV_PAGE_GESTURE;
+                                    s.nameId == StrId::STR_PREV_PAGE_GESTURE ||
+                                    s.nameId == StrId::STR_TOUCH_ZONE_LAYOUT;
                            }),
             v.end());
   }

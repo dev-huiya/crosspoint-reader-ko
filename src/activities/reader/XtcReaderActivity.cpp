@@ -44,6 +44,32 @@ void XtcReaderActivity::openChapterSelection() {
   }
 }
 
+bool XtcReaderActivity::handleButtonAction(CrossPointSettings::ButtonAction action) {
+  using A = CrossPointSettings::ButtonAction;
+  if (action == A::ReaderMenu) { openChapterSelection(); return true; }
+  if (!xtc || !xtc->hasChapters()) return false;
+  if (action != A::ChapterBack && action != A::ChapterForward) return false;
+  const auto& chapters = xtc->getChapters();
+  if (action == A::ChapterForward) {
+    for (const auto& chapter : chapters) {
+      if (chapter.startPage > currentPage) {
+        currentPage = chapter.startPage;
+        requestUpdate();
+        return true;
+      }
+    }
+  } else {
+    for (size_t index = chapters.size(); index > 0; --index) {
+      if (chapters[index - 1].startPage < currentPage) {
+        currentPage = chapters[index - 1].startPage;
+        requestUpdate();
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool XtcReaderActivity::handleFormatInput() {
   if (!xtc) {
     return false;
