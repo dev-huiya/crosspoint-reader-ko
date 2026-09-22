@@ -2,6 +2,9 @@
 
 #include <HalGPIO.h>
 
+#include "ButtonPressClassifier.h"
+#include "CrossPointSettings.h"
+
 class GfxRenderer;
 namespace freeink {
 namespace ui {
@@ -40,6 +43,8 @@ class MappedInputManager {
   MappedInputManager(HalGPIO& gpio, const GfxRenderer& renderer) : gpio(gpio), renderer(renderer) {}
 
   void update() const;
+  bool wasAction(CrossPointSettings::ButtonAction action) const;
+  void suppressActions() const;
 #if FREEINK_CAP_TOUCH
   // X4 Pro delays a single power click until its frontlight double-click window
   // expires. The main loop supplies that one-frame event here.
@@ -146,6 +151,9 @@ class MappedInputManager {
   mutable unsigned long touchHeldOverrideAt = 0;
   mutable uint16_t longPressFiredButtons = 0;
   mutable uint16_t suppressedReleaseButtons = 0;
+  mutable ButtonPressClassifier pressState[CrossPointSettings::BUTTON_COUNT]{};
+  mutable uint32_t actionEvents = 0;
+  void emitButtonAction(uint8_t button, CrossPointSettings::PressKind kind) const;
 #if FREEINK_CAP_TOUCH
   bool powerConfirmClickFrame = false;
 #endif

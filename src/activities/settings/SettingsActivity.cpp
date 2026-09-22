@@ -13,11 +13,13 @@
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
+#include "ButtonBindingsActivity.h"
 #include "FontDownloadActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "KeyboardLayoutsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
+#include "TouchZoneLayoutActivity.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
 #include "SdCardFontSystem.h"
@@ -67,22 +69,32 @@ void SettingsActivity::rebuildSettingsLists() {
       // Settings merged into "Text Settings"
       // (they stay in the shared list for the web settings API)
       if (setting.inTextSettings) continue;
+      if (setting.nameId == StrId::STR_TOUCH_ZONE_LAYOUT &&
+          SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_ON &&
+          SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_INVERTED_TAP) continue;
       readerSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_CONTROLS) {
       if (setting.valuePtr == &CrossPointSettings::pwrBtnFootnoteBack &&
           SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::FOOTNOTES) {
         continue;
       }
-      controlsSettings.push_back(setting);
+      // Legacy scalar controls remain in settings.json and the web API for migration.
     } else if (setting.category == StrId::STR_CAT_SYSTEM) {
       systemSettings.push_back(setting);
     }
   }
 
   // Append device-only ACTION items
-  if (!BoardConfig::hasTouch()) {
-    controlsSettings.insert(controlsSettings.begin(),
-                            SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
+  for (uint8_t button = 0; button < CrossPointSettings::BUTTON_COUNT; ++button) {
+    if (!buttonBindingAvailable(button)) continue;
+    auto item = SettingInfo::Action(buttonBindingLabel(button), SettingAction::ButtonBindings);
+    item.valueRange.min = button;
+    controlsSettings.push_back(item);
+  }
+  if (BoardConfig::hasTouch() &&
+      (SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_ON ||
+       SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_INVERTED_TAP)) {
+    readerSettings.push_back(SettingInfo::Action(StrId::STR_TOUCH_ZONE_LAYOUT, SettingAction::TouchZoneLayout));
   }
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
@@ -336,6 +348,19 @@ void SettingsActivity::toggleCurrentSetting() {
     switch (setting.action) {
       case SettingAction::RemapFrontButtons:
         startActivityForResult(std::make_unique<ButtonRemapActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ButtonBindings:
+        if (auto activity = makeUniqueNoThrow<ButtonBindingDetailActivity>(renderer, mappedInput,
+                                                                           setting.valueRange.min))
+          startActivityForResult(std::move(activity), resultHandler);
+        else
+          LOG_ERR("SETTINGS", "OOM: ButtonBindingDetailActivity");
+        break;
+      case SettingAction::TouchZoneLayout:
+        if (auto activity = makeUniqueNoThrow<TouchZoneLayoutActivity>(renderer, mappedInput))
+          startActivityForResult(std::move(activity), resultHandler);
+        else
+          LOG_ERR("SETTINGS", "OOM: TouchZoneLayoutActivity");
         break;
       case SettingAction::CustomiseStatusBar:
         startActivityForResult(std::make_unique<StatusBarSettingsActivity>(renderer, mappedInput), resultHandler);

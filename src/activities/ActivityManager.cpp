@@ -90,6 +90,20 @@ void ActivityManager::loop() {
   }
 
   if (currentActivity) {
+    using Action = CrossPointSettings::ButtonAction;
+    if (mappedInput.wasAction(Action::FileBrowser)) {
+      goToFileBrowser();
+      return;
+    }
+    if (mappedInput.wasAction(Action::Home) && !currentActivity->isHomeActivity()) {
+      if (!currentActivity->handleHomeGesture()) goHome();
+      return;
+    }
+    for (uint8_t value = static_cast<uint8_t>(Action::ChapterBack);
+         value < static_cast<uint8_t>(Action::FileBrowser); ++value) {
+      const auto action = static_cast<Action>(value);
+      if (mappedInput.wasAction(action) && currentActivity->handleButtonAction(action)) return;
+    }
     if (!currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
       if (currentActivity->handleHomeGesture()) {
         return;

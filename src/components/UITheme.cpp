@@ -14,8 +14,35 @@
 #include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
+#include "fontIds.h"
 
 UITheme UITheme::instance;
+
+void UITheme::drawTouchZonePreview(const GfxRenderer& renderer, Rect r, uint8_t layout, bool selected) {
+  renderer.drawRect(r.x, r.y, r.width, r.height, selected ? 3 : 1, true);
+  const int x = r.x, y = r.y, w = r.width, h = r.height;
+  if (layout == 0) {
+    renderer.drawLine(x + w / 3, y, x + w / 3, y + h);
+    renderer.drawLine(x + w * 2 / 3, y, x + w * 2 / 3, y + h);
+    renderer.drawText(UI_10_FONT_ID, x + w / 6, y + h / 2, "<");
+    renderer.drawText(UI_10_FONT_ID, x + w / 2, y + h / 2, "=");
+    renderer.drawText(UI_10_FONT_ID, x + w * 5 / 6, y + h / 2, ">");
+  } else if (layout == 3) {
+    renderer.drawLine(x, y + h * 7 / 8, x + w, y + h * 7 / 8);
+    renderer.drawLine(x + w / 2, y, x + w / 2, y + h * 7 / 8);
+    renderer.drawText(UI_10_FONT_ID, x + w / 4, y + h / 2, "<");
+    renderer.drawText(UI_10_FONT_ID, x + w * 3 / 4, y + h / 2, ">");
+    renderer.drawText(UI_10_FONT_ID, x + w / 2, y + h * 15 / 16, "=");
+  } else {
+    renderer.drawLine(x, y + h * 2 / 3, x + w, y + h * 2 / 3);
+    const int menuX = x + w * 3 / 8;
+    const int menuY = layout == 1 ? y + h * 3 / 8 : y + h / 2;
+    renderer.drawRect(menuX, menuY, w / 4, h / 4);
+    renderer.drawText(UI_10_FONT_ID, x + w / 2, y + h / 4, "<");
+    renderer.drawText(UI_10_FONT_ID, x + w / 2, y + h * 5 / 6, ">");
+    renderer.drawText(UI_10_FONT_ID, x + w / 2, menuY + h / 8, "=");
+  }
+}
 
 UITheme::UITheme() {
   auto themeType = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);

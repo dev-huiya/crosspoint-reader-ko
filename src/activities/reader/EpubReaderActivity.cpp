@@ -982,6 +982,26 @@ bool EpubReaderActivity::launchKOReaderSync() {
   return true;
 }
 
+bool EpubReaderActivity::handleButtonAction(CrossPointSettings::ButtonAction action) {
+  using A = CrossPointSettings::ButtonAction;
+  if (ReaderActivity::handleButtonAction(action)) return true;
+  switch (action) {
+    case A::ReaderMenu: openReaderMenu(); return true;
+    case A::Rotate:
+      applyOrientation((SETTINGS.orientation + 1) % CrossPointSettings::ORIENTATION_COUNT);
+      requestUpdate();
+      return true;
+    case A::Footnotes:
+      if (currentPageFootnotes.empty()) return false;
+      onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::FOOTNOTES);
+      return true;
+    case A::Bookmark: addBookmark(); requestUpdate(); return true;
+    case A::Dictionary: openDictionaryWordSelect(); return true;
+    case A::KoSync: return launchKOReaderSync();
+    default: return false;
+  }
+}
+
 void EpubReaderActivity::applyInitialOrientation() {
   ReaderActivity::applyInitialOrientation();
   appliedOrientation = SETTINGS.orientation;

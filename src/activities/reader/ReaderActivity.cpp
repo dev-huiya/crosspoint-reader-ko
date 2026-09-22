@@ -153,6 +153,19 @@ bool ReaderActivity::handleEndOfBookPageTurn(const bool prevTriggered, const boo
   return true;
 }
 
+bool ReaderActivity::handleButtonAction(CrossPointSettings::ButtonAction action) {
+  switch (action) {
+    case CrossPointSettings::ButtonAction::ChapterBack:
+    case CrossPointSettings::ButtonAction::ChapterForward:
+      if (name != "EpubReader") return false;
+      skipPages(action == CrossPointSettings::ButtonAction::ChapterForward ? 1 : -1);
+      requestUpdate();
+      return true;
+    default:
+      return false;
+  }
+}
+
 void ReaderActivity::loop() {
   tickReadingTimer();
   clearEndOfBookOptionsIfNeeded();

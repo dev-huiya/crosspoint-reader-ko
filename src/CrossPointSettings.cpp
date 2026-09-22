@@ -1,5 +1,6 @@
 #include "CrossPointSettings.h"
 
+#include <BoardConfig.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
@@ -51,6 +52,50 @@ void legacyFontFamilyFromPath(char* dest, size_t destLen, const char* path) {
 
 }  // namespace
 
+void CrossPointSettings::ensureButtonBindings() {
+  if (buttonBindingsReady) return;
+  memset(buttonBindings, 0, sizeof(buttonBindings));
+  using A = ButtonAction;
+  auto bind = [this](uint8_t button, PressKind kind, A action) {
+    buttonBindings[button][kind] = static_cast<uint8_t>(action);
+  };
+  bind(frontButtonBack, SHORT, A::Back);
+  bind(frontButtonConfirm, SHORT, A::Confirm);
+  bind(frontButtonLeft, SHORT, A::PageBack);
+  bind(frontButtonRight, SHORT, A::PageForward);
+  bind(4, SHORT, sideButtonLayout == NEXT_PREV ? A::PageForward :
+                   sideButtonLayout == SIDE_BUTTONS_DISABLED ? A::None : A::PageBack);
+  bind(5, SHORT, sideButtonLayout == NEXT_PREV ? A::PageBack :
+                   sideButtonLayout == SIDE_BUTTONS_DISABLED ? A::None : A::PageForward);
+  bind(7, SHORT, A::Home);
+  bind(6, LONG, A::Sleep);
+  bind(6, SHORT, shortPwrBtn == SLEEP ? A::Sleep : shortPwrBtn == PAGE_TURN ? A::PageForward :
+                 shortPwrBtn == FORCE_REFRESH ? A::Refresh : shortPwrBtn == FOOTNOTES ? A::Footnotes :
+                 shortPwrBtn == PWR_CONFIRM ? A::Confirm : A::None);
+  if (BoardConfig::isX4Pro()) {
+    bind(6, DOUBLE, A::LightToggle);
+    if (shortPwrBtn == IGNORE) bind(6, SHORT, A::Confirm);
+  }
+  if (BoardConfig::isPaperMono() && shortPwrBtn == IGNORE) bind(6, SHORT, A::Sleep);
+  if (BoardConfig::ACTIVE.input.power != BoardConfig::PIN_UNASSIGNED &&
+      BoardConfig::ACTIVE.input.power == BoardConfig::ACTIVE.input.confirm && shortPwrBtn == IGNORE)
+    bind(6, SHORT, A::Confirm);
+  if (longPressButtonBehavior == CHAPTER_SKIP) {
+    bind(4, LONG, A::ChapterBack);
+    bind(5, LONG, A::ChapterForward);
+  } else if (longPressButtonBehavior == ORIENTATION_CHANGE) {
+    bind(4, LONG, A::Rotate);
+    bind(5, LONG, A::Rotate);
+  }
+  const A menuLong = longPressMenuFunction == LP_MENU_BOOKMARK ? A::Bookmark :
+                     longPressMenuFunction == LP_MENU_DICTIONARY ? A::Dictionary :
+                     longPressMenuFunction == LP_MENU_KOSYNC ? A::KoSync :
+                     longPressMenuFunction == LP_MENU_READER_MENU ? A::ReaderMenu : A::None;
+  bind(frontButtonConfirm, LONG, menuLong);
+  bind(7, LONG, menuLong);
+  buttonBindingsReady = true;
+}
+
 void CrossPointSettings::validateFrontButtonMapping(CrossPointSettings& settings) {
   const uint8_t mapping[] = {settings.frontButtonBack, settings.frontButtonConfirm, settings.frontButtonLeft,
                              settings.frontButtonRight};
@@ -85,6 +130,13 @@ uint8_t CrossPointSettings::sleepTimeoutEnumToMinutes(const uint8_t legacyValue)
 
 void CrossPointSettings::toJson(JsonDocument& doc) const {
   const CrossPointSettings& s = *this;
+  if (buttonBindingsReady) {
+    JsonArray bindings = doc["buttonBindings"].to<JsonArray>();
+    for (uint8_t button = 0; button < BUTTON_COUNT; ++button) {
+      JsonArray row = bindings.add<JsonArray>();
+      for (uint8_t kind = 0; kind < PRESS_COUNT; ++kind) row.add(buttonBindings[button][kind]);
+    }
+  }
 
   for (const auto& info : getSettingsList()) {
     if (!info.key) continue;
@@ -217,6 +269,24 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   frontButtonRight =
       clamp(doc["frontButtonRight"] | (uint8_t)FRONT_HW_RIGHT, FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_RIGHT);
   validateFrontButtonMapping(s);
+  JsonArrayConst bindings = doc["buttonBindings"].as<JsonArrayConst>();
+  if (bindings.size() == BUTTON_COUNT) {
+    bool valid = true;
+    for (uint8_t button = 0; button < BUTTON_COUNT; ++button) {
+      JsonArrayConst row = bindings[button].as<JsonArrayConst>();
+      if (row.size() != PRESS_COUNT) { valid = false; break; }
+      for (uint8_t kind = 0; kind < PRESS_COUNT; ++kind) {
+        const uint8_t action = row[kind] | static_cast<uint8_t>(ButtonAction::None);
+        if (action >= static_cast<uint8_t>(ButtonAction::Count)) { valid = false; break; }
+        buttonBindings[button][kind] = action;
+      }
+    }
+    buttonBindingsReady = valid;
+  }
+  if (!buttonBindingsReady) {
+    ensureButtonBindings();
+    needsResave = true;
+  }
 
   // Reader font size — an actual point size since 1.5. Files written by 1.4 and
   // earlier hold the old SMALL/MEDIUM/LARGE/EXTRA_LARGE slot in 0..3; no font is

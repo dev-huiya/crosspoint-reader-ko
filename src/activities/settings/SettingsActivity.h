@@ -14,6 +14,8 @@ enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING };
 enum class SettingAction {
   None,
   RemapFrontButtons,
+  ButtonBindings,
+  TouchZoneLayout,
   CustomiseStatusBar,
   KOReaderSync,
   OPDSBrowser,

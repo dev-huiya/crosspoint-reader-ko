@@ -1,0 +1,4 @@
+add_executable(ButtonPressClassifierTest ButtonPressClassifierTest.cpp)
+target_include_directories(ButtonPressClassifierTest PRIVATE ${CMAKE_SOURCE_DIR}/../src)
+target_link_libraries(ButtonPressClassifierTest PRIVATE GTest::gtest_main)
+gtest_discover_tests(ButtonPressClassifierTest)

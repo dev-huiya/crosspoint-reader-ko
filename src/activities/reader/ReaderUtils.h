@@ -8,6 +8,7 @@
 #include <components/bars/tap-zones.h>
 
 #include "MappedInputManager.h"
+#include "ReaderTouchZones.h"
 #include "activities/ActivityManager.h"
 
 namespace ReaderUtils {
@@ -18,10 +19,9 @@ constexpr unsigned long SKIP_HOLD_MS = 700;
 constexpr unsigned long BOOKMARK_HOLD_MS = 400;
 constexpr unsigned long BOOKMARK_MESSAGE_DURATION_MS = 2500;
 
-enum ReaderTouchAction : freeink::ui::ActionId {
-  READER_TOUCH_PREV = 1,
-  READER_TOUCH_NEXT = 3,
-};
+inline ReaderTapZone classifyReaderTap(const GfxRenderer& renderer, int x, int y) {
+  return readerTapZone(renderer.getScreenWidth(), renderer.getScreenHeight(), x, y, SETTINGS.touchZoneLayout);
+}
 
 inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
   switch (orientation) {
@@ -98,24 +98,10 @@ inline TouchPageTurn detectTouchPageTurn(GfxRenderer& renderer, const MappedInpu
     return result;
   }
 
-  const int16_t width = static_cast<int16_t>(renderer.getScreenWidth());
-  const int16_t height = static_cast<int16_t>(renderer.getScreenHeight());
-  // Outer thirds only: the center column contains the reader-menu tap target
-  // (isTouchMenuTap below), so it must not double as a page turn.
-  const int16_t zoneWidth = width / 3;
   const bool inverted = SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_INVERTED_TAP;
-  const freeink::ui::TapZone zones[] = {
-      {freeink::ui::Rect{0, 0, zoneWidth, height}, inverted ? READER_TOUCH_NEXT : READER_TOUCH_PREV},
-      {freeink::ui::Rect{static_cast<int16_t>(width - zoneWidth), 0, zoneWidth, height},
-       inverted ? READER_TOUCH_PREV : READER_TOUCH_NEXT},
-  };
-
-  for (const auto& zone : zones) {
-    if (!zone.enabled || !zone.rect.contains(static_cast<int16_t>(x), static_cast<int16_t>(y))) continue;
-    result.prev = zone.action == READER_TOUCH_PREV;
-    result.next = zone.action == READER_TOUCH_NEXT;
-    break;
-  }
+  const ReaderTapZone action = classifyReaderTap(renderer, x, y);
+  result.prev = inverted ? action == ReaderTapZone::Next : action == ReaderTapZone::Previous;
+  result.next = inverted ? action == ReaderTapZone::Previous : action == ReaderTapZone::Next;
   result.heldMs = gpio.lastTouchHeldMs();
   return result;
 }
@@ -127,15 +113,17 @@ inline TouchPageTurn detectTouchPageTurn(GfxRenderer& renderer, const MappedInpu
 // menu stays reachable through the key's long-press function.
 inline bool isTouchMenuTap(const GfxRenderer& renderer, const MappedInputManager& input) {
   if (!input.hasTouch()) return false;
-  if (SETTINGS.showReaderMenu != CrossPointSettings::READER_MENU_TAP) return false;
+  const bool zoneMenu = SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_ON ||
+                        SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_INVERTED_TAP;
+  if (!zoneMenu && SETTINGS.showReaderMenu != CrossPointSettings::READER_MENU_TAP) return false;
   int x = 0;
   int y = 0;
   if (!input.wasScreenTapped(x, y)) return false;
+  if (zoneMenu)
+    return classifyReaderTap(renderer, x, y) == ReaderTapZone::Menu;
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
-  const int zoneWidth = width / 3;
-  const int zoneHeight = height / 3;
-  return x >= zoneWidth && x < width - zoneWidth && y >= zoneHeight && y < height - zoneHeight;
+  return x >= width / 3 && x < width - width / 3 && y >= height / 3 && y < height - height / 3;
 }
 
 // Reader menu opens on the menu edge-swipe or a center-third tap. On home-key

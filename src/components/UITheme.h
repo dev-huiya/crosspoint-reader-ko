@@ -32,6 +32,7 @@ class UITheme {
   void reload();
   void setTheme(CrossPointSettings::UI_THEME type);
   static std::string getCoverThumbPath(std::string coverBmpPath, int coverHeight);
+  static void drawTouchZonePreview(const GfxRenderer& renderer, Rect rect, uint8_t layout, bool selected);
   static UIIcon getFileIcon(const std::string& filename);
   static int getStatusBarHeight();
   static int getProgressBarHeight();

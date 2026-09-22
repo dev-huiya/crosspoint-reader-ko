@@ -371,6 +371,7 @@ void setup() {
     SETTINGS.readerMenuStyle = CrossPointSettings::READER_MENU_TOOLBAR;
   }
   SETTINGS.loadFromFile();
+  SETTINGS.ensureButtonBindings();
   restoreLegacyKoLanguage();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
@@ -530,7 +531,9 @@ void loop() {
   const unsigned long loopStartTime = millis();
   static unsigned long lastMemPrint = 0;
 
-  gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
+  gpio.setSharedConfirmPowerShortPressEmitsPower(
+      SETTINGS.buttonBindingsReady ||
+      SETTINGS.buttonAction(HalGPIO::BTN_POWER, CrossPointSettings::SHORT) == CrossPointSettings::ButtonAction::Sleep);
   mappedInputManager.update();
 
   if (activityManager.requiresExclusiveStorageLoop()) {
@@ -595,6 +598,7 @@ void loop() {
   static bool screenshotButtonsReleased = true;
   static bool screenshotComboActive = false;
   if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
+    mappedInputManager.suppressActions();
     screenshotComboActive = true;
     if (screenshotButtonsReleased) {
       screenshotButtonsReleased = false;
@@ -606,6 +610,7 @@ void loop() {
     return;
   }
   if (screenshotComboActive) {
+    mappedInputManager.suppressActions();
     if (gpio.isPressed(HalGPIO::BTN_POWER)) return;
     if (gpio.wasReleased(HalGPIO::BTN_POWER)) {
       screenshotButtonsReleased = true;
@@ -618,7 +623,7 @@ void loop() {
 
   // Consume the second X4 Pro power-button release so it does not also run a
   // configured short-power action after toggling the frontlight.
-  if (handleX4ProFrontlightDoubleClick()) {
+  if (!SETTINGS.buttonBindingsReady && handleX4ProFrontlightDoubleClick()) {
     return;
   }
 
@@ -626,7 +631,7 @@ void loop() {
   // A single X4 Pro power click becomes Confirm only after the frontlight
   // double-click window expires without a second click.
   mappedInputManager.setPowerConfirmClickFrame(false);
-  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PWR_CONFIRM && BoardConfig::isX4Pro() &&
+  if (!SETTINGS.buttonBindingsReady && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PWR_CONFIRM && BoardConfig::isX4Pro() &&
       lastX4ProPowerClickAt != 0 && millis() - lastX4ProPowerClickAt > X4PRO_POWER_DOUBLE_CLICK_MS) {
     lastX4ProPowerClickAt = 0;
     mappedInputManager.setPowerConfirmClickFrame(true);
@@ -647,7 +652,7 @@ void loop() {
   static bool powerReleasedSinceWake = false;
   if (!gpio.isPressed(HalGPIO::BTN_POWER)) powerReleasedSinceWake = true;
 
-  if (powerReleasedSinceWake && millis() >= allowSleepAt && gpio.isPressed(HalGPIO::BTN_POWER) &&
+  if (!SETTINGS.buttonBindingsReady && powerReleasedSinceWake && millis() >= allowSleepAt && gpio.isPressed(HalGPIO::BTN_POWER) &&
       gpio.getPowerButtonHeldTime() > SETTINGS.getPowerButtonDuration()) {
     // If the screenshot combination is potentially being pressed, don't sleep
     if (gpio.isPressed(HalGPIO::BTN_DOWN)) {
@@ -663,7 +668,7 @@ void loop() {
   // Paper Mono reports the PMIC power button as a one-tick click, so the held
   // path above cannot fire. With the default Ignore action, retain the normal
   // power-button meaning and shut down; explicit alternate bindings still win.
-  if ((SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP ||
+  if (!SETTINGS.buttonBindingsReady && (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP ||
        SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::IGNORE) &&
       millis() >= allowSleepAt && mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
     enterDeepSleep();
@@ -672,9 +677,27 @@ void loop() {
 #endif
 
   // Refresh screen when power button is short-pressed with FORCE_REFRESH setting.
-  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
+  if (!SETTINGS.buttonBindingsReady && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
       mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
     LOG_DBG("MAIN", "Manual screen refresh triggered");
+    if (!activityManager.handleForcedRefresh()) {
+      RenderLock lock;
+      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    }
+  }
+
+  if (SETTINGS.buttonBindingsReady && millis() >= allowSleepAt &&
+      mappedInputManager.wasAction(CrossPointSettings::ButtonAction::Sleep)) {
+    enterDeepSleep();
+    return;
+  }
+  if (mappedInputManager.wasAction(CrossPointSettings::ButtonAction::LightToggle) && Frontlight.present()) {
+    const bool on = !Frontlight.isOn();
+    Frontlight.setOn(on);
+    SETTINGS.frontlightOn = on ? 1 : 0;
+    SETTINGS.saveToFile();
+  }
+  if (mappedInputManager.wasAction(CrossPointSettings::ButtonAction::Refresh)) {
     if (!activityManager.handleForcedRefresh()) {
       RenderLock lock;
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);

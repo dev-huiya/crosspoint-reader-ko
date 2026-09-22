@@ -118,6 +118,9 @@ class TxtReaderActivity final : public ReaderActivity {
 
   bool loadBook() override;
   std::string getBookTitle() const override { return txt ? txt->getTitle() : ""; }
+  std::string getBookThumbBmpPath() const override {
+    return txt && Storage.exists(txt->getCoverBmpPath().c_str()) ? txt->getThumbBmpPath() : "";
+  }
   std::string getBookCachePath() const override { return txt ? txt->getCachePath() : ""; }
   void renderBook() override;
   bool handleFormatInput() override;
@@ -134,6 +137,7 @@ class TxtReaderActivity final : public ReaderActivity {
   // is still being built.
   bool skipLoopDelay() override { return initialized && !pageIndex.complete && indexFailures < INDEX_MAX_FAILURES; }
   bool pageTurn(bool isForward) override;
+  bool handleButtonAction(CrossPointSettings::ButtonAction action) override;
   bool skipPages(int amount) override;
   bool isAtEndOfBook() const override;
   void onReturnFromEndOfBook() override;

@@ -62,4 +62,5 @@ class ReaderActivity : public Activity {
 
   bool isReaderActivity() const final { return true; }
   bool handleForcedRefresh() final;
+  bool handleButtonAction(CrossPointSettings::ButtonAction action) override;
 };

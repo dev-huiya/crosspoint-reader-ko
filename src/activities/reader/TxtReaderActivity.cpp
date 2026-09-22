@@ -66,6 +66,7 @@ bool TxtReaderActivity::loadBook() {
     return false;
   }
   txt->setupCacheDir();
+  (void)txt->generateCoverBmp(true);
   fileSize = txt->getFileSize();
   return true;
 }
@@ -674,6 +675,21 @@ bool TxtReaderActivity::handleFormatInput() {
         return true;
       }
     }
+  }
+  return false;
+}
+
+bool TxtReaderActivity::handleButtonAction(CrossPointSettings::ButtonAction action) {
+  using A = CrossPointSettings::ButtonAction;
+  if (ReaderActivity::handleButtonAction(action)) return true;
+  if (action == A::ReaderMenu) { openReaderMenu(); return true; }
+  if (action == A::Rotate) {
+    SETTINGS.orientation = (SETTINGS.orientation + 1) % CrossPointSettings::ORIENTATION_COUNT;
+    SETTINGS.saveToFile();
+    ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+    invalidateLayout();
+    requestUpdate();
+    return true;
   }
   return false;
 }
