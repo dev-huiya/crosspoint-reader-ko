@@ -29,7 +29,15 @@ static_assert(std::size(ACTION_LABELS) == static_cast<size_t>(CrossPointSettings
 
 }  // namespace
 
-StrId buttonBindingLabel(uint8_t button) { return BUTTON_LABELS[button]; }
+StrId buttonBindingLabel(uint8_t button) {
+  // The X4 Pro's two side keys sit left and right of the screen (its only
+  // physical page keys), so they are named by that position there.
+  if (BoardConfig::isX4Pro()) {
+    if (button == HalGPIO::BTN_UP) return StrId::STR_BUTTON_SIDE_LEFT;
+    if (button == HalGPIO::BTN_DOWN) return StrId::STR_BUTTON_SIDE_RIGHT;
+  }
+  return BUTTON_LABELS[button];
+}
 
 bool buttonBindingAvailable(uint8_t button) {
   if (button == 7) return BoardConfig::hasHomeKey();
@@ -58,7 +66,7 @@ int ButtonBindingDetailActivity::listCount() const {
   return button == 6 && BoardConfig::isPaperMono() ? 2 : 3;
 }
 
-const char* ButtonBindingDetailActivity::headerTitle() const { return I18N.get(BUTTON_LABELS[button]); }
+const char* ButtonBindingDetailActivity::headerTitle() const { return I18N.get(buttonBindingLabel(button)); }
 
 void ButtonBindingDetailActivity::activateIndex(int index) {
   if (index < 0 || index >= listCount()) return;
