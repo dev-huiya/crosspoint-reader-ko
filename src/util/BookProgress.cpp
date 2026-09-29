@@ -14,9 +14,19 @@ namespace {
 uint32_t readLe32(const uint8_t* p) {
   return uint32_t(p[0]) | (uint32_t(p[1]) << 8) | (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
 }
+
+
+std::string rememberedPath;
+int rememberedPercent = -1;
 }  // namespace
 
+void rememberBookProgress(const std::string& path, const int percent) {
+  rememberedPath = path;
+  rememberedPercent = percent;
+}
+
 int loadBookProgress(const std::string& path) {
+  if (!rememberedPath.empty() && path == rememberedPath) return rememberedPercent;
   uint8_t data[10]{};
   if (FsHelpers::hasEpubExtension(path)) {
     // Metadata objects exceed the stack budget; only the featured book is loaded, once per entry.

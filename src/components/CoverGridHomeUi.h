@@ -47,7 +47,10 @@ class CoverGridHomeUi final : public UiAppHost {
   GfxRenderer& renderer;
   const std::vector<RecentBook>* books = nullptr;
   std::array<std::string, MAX_BOOKS> coverPaths;
-  int thumbHeight = 0;
+  // The slot height measured by the last grid drawn. Home is recreated on
+  // every visit; starting from it lets the first pass draw the covers.
+  static inline int rememberedThumbHeight = 0;
+  int thumbHeight = rememberedThumbHeight;
   bool thumbHeightChanged = false;
   int selected = 0;
   int pending = -1;

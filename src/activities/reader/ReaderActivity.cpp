@@ -15,6 +15,7 @@
 #include "SdCardFontSystem.h"
 #include "TxtReaderActivity.h"
 #include "XtcReaderActivity.h"
+#include "util/BookProgress.h"
 
 ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
                                std::string bookPath, const bool allowFastInitialRefresh)
@@ -96,6 +97,9 @@ void ReaderActivity::rememberBookOnceRendered() {
 
 void ReaderActivity::onExit() {
   readingTimer.stop();
+  // The home screen shows this book's percentage next; hand it over instead of
+  // having it load the book's metadata again.
+  if (const auto info = getScreenshotInfo(); info.totalPages > 0) rememberBookProgress(bookPath, info.progressPercent);
   Activity::onExit();
 
   // Keep rebuildable font buffers from pinning the heap between reading sessions.

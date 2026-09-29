@@ -65,6 +65,7 @@ void CoverGridHomeUi::noteThumbHeight(int slotHeight) {
   // rightward nudge never exposes the left edge; covers narrower than the
   // 2:3 slot may show a thin sliver at the sides rather than being cropped.
   const int height = std::max(1, slotHeight + 8);
+  rememberedThumbHeight = height;
   if (thumbHeight != height) {
     thumbHeight = height;
     thumbHeightChanged = true;
