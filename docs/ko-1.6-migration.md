@@ -340,3 +340,71 @@ item since the Phase 5 table.
   were not.
 - Host tests and the `x4pro` build predate the translation commit, which
   changes only `korean.yaml`; `default` was rebuilt at the tip.
+
+## Configurable controls port and sibling covers
+
+The configurable reader controls (`0dff35ce`, per-button short/long/double
+press bindings, reader touch-zone presets, cached TXT covers) were only on
+`release/1.6.0-ko-1`. They are ported onto this branch with the original
+author and without the `1.6.0-ko.1` version bump, followed by the
+integration with 1.6.5's own controls. The Optimized home theme
+(`817a6b6a`) is reverted; a stored `uiTheme` 5 is clamped to the default
+theme by the settings loader.
+
+### Overlap with 1.6.5 controls
+
+The per-button bindings (Settings → Controls → a button → short / long /
+double press) are the single configuration for every physical button:
+
+| 1.6.5 feature | Resolution |
+| --- | --- |
+| Home Button Gestures (#3516): Home key tap / double tap / long press actions, `HomeButtonSettingsActivity`, `homeButtonAction()` | Merged. The Home key goes through the bindings' press classifier; its three actions become the Home button's default short / double / long bindings. The Home Button Gestures screen and `homeButtonAction()` are removed. Reader menu, bookmark, dictionary, sync, footnotes and rotate reach the EPUB reader, TXT reader and image viewer through `handleButtonAction()`; the EPUB reader keeps upstream's toolbar menu, bookmark message, footnote return and automatic page turn stop. Transfer loops (`update(true)`) defer bound command actions as upstream deferred Home actions. |
+| X4 Pro power double click toggles the frontlight (#3089, `doubleClickPwrLight`) | Merged into the default power double-press binding (Toggle light, only when the setting was on). The upstream click-window code stays behind `!buttonBindingsReady`. |
+| Short power button / long-press page button / Confirm long-press menu / side layout (incl. #3586's NEXT_NEXT, PREV_PREV) / front buttons follow orientation | Folded into the default bindings, then hidden from the device and web settings (`isReplacedByButtonBindings()`); they stay in `settings.json` as the defaults source. |
+| Per-direction page-turn gestures (#3586) and the reader touch-zone presets | Both kept, in the Reader category: the gestures decide which directions accept taps and swipes, the preset decides where a tap lands and where the menu zone is. RTL books (#3709) reverse the left/right presets only. |
+| Tilt page turn, the reader's Back short/long swap | Not button bindings; they stay under Controls after the button list. |
+
+Defaults for a settings file without `buttonBindings` (fresh cards and
+upgrades from 1.6.5-ko), with upstream's default settings:
+
+| Button | Short | Long | Double |
+| --- | --- | --- | --- |
+| Back | Back | — (each screen's own hold: file browser / Home in the reader) | — |
+| Confirm | Confirm | Confirm long-press menu setting (default none) | — |
+| Left / Right (front) | Previous / next page | Chapter skip or rotate per the long-press setting (default none) | — |
+| Upper / lower side | Previous / next page per the side layout | as front | — |
+| Power | Short power setting (default none; Confirm on X4 Pro and shared Confirm/Power boards, Sleep on Paper Mono) | Sleep | Toggle light on X4 Pro |
+| Home (X4 Pro) | Home | Reader menu | Toggle light |
+
+A button with a double-press binding delays its short press by the
+double-press window (500 ms; upstream's Home key used 350 ms). A hold
+(700 ms) on a button without a long-press binding is released as a short
+press, and screens' own holds (`wasLongPressed()`: the reader's Back to
+the file browser, keyboard and list holds) and `isPressed()` auto-repeat
+keep working for such buttons; a bound long press takes precedence. A
+settings file from 1.6.0-ko.1 keeps its saved bindings.
+
+Other changes: page turns under bindings read the page and direction
+actions directly, so an inverted orientation no longer fires both
+directions from one front button; one power click wakes the device when
+the power short press is bound to Sleep; the TXT long-press page jump
+fires on an unbound page-button hold or a chapter-skip binding. The
+side-button layout values read 왼쪽/오른쪽 (Left/Right) instead of
+이전/다음; the option itself is now hidden, so the Controls list names
+the buttons by position (왼쪽 버튼, 위쪽 측면 버튼, ...).
+
+### Sibling cover images
+
+A same-name image beside a book (`foo.jpg|jpeg|png|bmp` for `foo.epub`,
+`.xtc` or `.txt`, extension case ignored) is its cover wherever the book's
+cover and thumbnails come from: the Cover Grid and the other home themes,
+the sleep screen, the TXT cover. EPUB and XTC fall back to their own
+cover; TXT books have only this one. `lib/SiblingCover` does the lookup
+(one directory pass, nothing retained) and the conversion (the existing
+JPEG/PNG converters, BMP copied). The book's cache directory records the
+result as `sibling.src` (size and path) or `cover.missing`, so home
+renders never rescan the folder. Opening the book rescans it and, when the
+image was added, removed, renamed or resized, deletes the cached
+`cover*.bmp` / `thumb_*.bmp` so they are rebuilt. An edit that keeps the
+file size needs a cache clear. The Cover Grid also shows TXT books' sibling
+covers now, and skips parsing an XTC that has one.
