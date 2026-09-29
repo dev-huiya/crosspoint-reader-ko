@@ -285,6 +285,12 @@ std::string BmpViewerActivity::currentFileName() const {
   return lastSlash != std::string::npos ? filePath.substr(lastSlash + 1) : filePath;
 }
 
+bool BmpViewerActivity::handleButtonAction(const CrossPointSettings::ButtonAction action) {
+  if (action != CrossPointSettings::ButtonAction::ReaderMenu) return false;
+  openMenu();
+  return true;
+}
+
 void BmpViewerActivity::openMenu() {
   auto menu = makeUniqueNoThrow<ImageViewerMenuActivity>(renderer, mappedInput, currentFileName(), canSetSleepCover());
   if (!menu) {
@@ -381,10 +387,9 @@ void BmpViewerActivity::loop() {
     return;
   }
 
-  // Same triggers as the reader menu: Confirm, the Home-button action mapped
-  // to the reader menu, or the touch menu gesture.
-  const bool homeKeyMenu = mappedInput.homeButtonAction() == HomeButtonAction::ReaderMenu;
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || homeKeyMenu ||
+  // Same triggers as the reader menu: Confirm, a button bound to the reader
+  // menu (handleButtonAction()), or the touch menu gesture.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
       ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
     openMenu();
     return;

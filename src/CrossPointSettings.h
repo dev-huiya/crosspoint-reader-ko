@@ -17,12 +17,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   friend class PersistableStore<CrossPointSettings>;
 
  public:
+  // Persisted in "buttonBindings": append new actions before Count only.
   enum class ButtonAction : uint8_t {
     None, Back, Confirm, Up, Down, Left, Right, Home, PageBack, PageForward,
     ChapterBack, ChapterForward, ReaderMenu, Rotate, Sleep, LightToggle,
     Refresh, Footnotes, Bookmark, Dictionary, KoSync, FileBrowser, Count
   };
   static constexpr uint8_t BUTTON_COUNT = 8;  // SDK indices 0..6, then capacitive Home.
+  static constexpr uint8_t HOME_BUTTON = 7;
   static constexpr uint8_t PRESS_COUNT = 3;   // short, long, double.
   enum PressKind : uint8_t { SHORT = 0, LONG = 1, DOUBLE = 2 };
   enum SLEEP_SCREEN_MODE {

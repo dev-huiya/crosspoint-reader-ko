@@ -492,18 +492,6 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  switch (mappedInput.homeButtonAction()) {
-    case HomeButtonAction::ReaderMenu:
-    case HomeButtonAction::Bookmark:
-    case HomeButtonAction::Sync:
-    case HomeButtonAction::Dictionary:
-    case HomeButtonAction::Footnotes:
-      automaticPageTurnActive = false;
-      break;
-    default:
-      break;
-  }
-
   if (automaticPageTurnActive) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
         mappedInput.wasReleased(MappedInputManager::Button::Back) ||
@@ -569,33 +557,6 @@ void EpubReaderActivity::loop() {
     }
   }
 
-  if (!endOfBookMenuOpen) {
-    switch (mappedInput.homeButtonAction()) {
-      case HomeButtonAction::Bookmark:
-        if (!showBookmarkMessage) {
-          addBookmark();
-          showBookmarkMessage = true;
-          bookmarkMessageTime = millis();
-          requestUpdate();
-        }
-        return;
-      case HomeButtonAction::Sync:
-        launchKOReaderSync();
-        return;
-      case HomeButtonAction::Dictionary:
-        if (!showDictionaryMessage) openDictionaryWordSelect();
-        return;
-      case HomeButtonAction::ReaderMenu:
-        if (usesToolbarMenu() && section)
-          openOverlay(Overlay::Toolbar);
-        else
-          openReaderMenu();
-        return;
-      default:
-        break;
-    }
-  }
-
   // Link taps take priority over the reader-menu and page-turn zones.
   if (!atEndOfBook && !currentPageLinks.empty() && SETTINGS.touchReaderControls && mappedInput.hasTouch()) {
     int touchX = 0;
@@ -631,10 +592,9 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  if ((!endOfBookMenuOpen && mappedInput.homeButtonAction() == HomeButtonAction::Footnotes) ||
-      (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FOOTNOTES &&
-       mappedInput.wasReleased(MappedInputManager::Button::Power) &&
-       !mappedInput.wasReleased(MappedInputManager::Button::Down))) {
+  if (!SETTINGS.buttonBindingsReady && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FOOTNOTES &&
+      mappedInput.wasReleased(MappedInputManager::Button::Power) &&
+      !mappedInput.wasReleased(MappedInputManager::Button::Down)) {
     if (footnoteDepth > 0) {
       restoreSavedPosition();
     } else {
@@ -1022,21 +982,49 @@ bool EpubReaderActivity::launchKOReaderSync() {
 
 bool EpubReaderActivity::handleButtonAction(CrossPointSettings::ButtonAction action) {
   using A = CrossPointSettings::ButtonAction;
+  // The toolbar overlay and the end-of-book menu own the input while shown.
+  if (overlay != Overlay::None || endOfBookMenuActive()) return false;
   if (ReaderActivity::handleButtonAction(action)) return true;
   switch (action) {
-    case A::ReaderMenu: openReaderMenu(); return true;
+    case A::ReaderMenu:
+      automaticPageTurnActive = false;
+      if (usesToolbarMenu() && section) {
+        pendingManualTurn = 0;
+        openOverlay(Overlay::Toolbar);
+      } else {
+        openReaderMenu();
+      }
+      return true;
     case A::Rotate:
       applyOrientation((SETTINGS.orientation + 1) % CrossPointSettings::ORIENTATION_COUNT);
       requestUpdate();
       return true;
     case A::Footnotes:
-      if (currentPageFootnotes.empty()) return false;
-      onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction::FOOTNOTES);
+      automaticPageTurnActive = false;
+      if (footnoteDepth > 0) {
+        restoreSavedPosition();
+      } else {
+        openFootnoteSelect(false);
+      }
       return true;
-    case A::Bookmark: addBookmark(); requestUpdate(); return true;
-    case A::Dictionary: openDictionaryWordSelect(); return true;
-    case A::KoSync: return launchKOReaderSync();
-    default: return false;
+    case A::Bookmark:
+      automaticPageTurnActive = false;
+      if (!showBookmarkMessage) {
+        addBookmark();
+        showBookmarkMessage = true;
+        bookmarkMessageTime = millis();
+        requestUpdate();
+      }
+      return true;
+    case A::Dictionary:
+      automaticPageTurnActive = false;
+      if (!showDictionaryMessage) openDictionaryWordSelect();
+      return true;
+    case A::KoSync:
+      automaticPageTurnActive = false;
+      return launchKOReaderSync();
+    default:
+      return false;
   }
 }
 

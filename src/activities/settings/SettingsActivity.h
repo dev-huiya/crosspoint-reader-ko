@@ -29,7 +29,6 @@ enum class SettingAction {
   DownloadFonts,
   TextSettings,
   KeyboardLayouts,
-  HomeButton,
   About,
   SleepImages,
 };

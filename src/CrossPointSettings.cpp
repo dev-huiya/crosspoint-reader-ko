@@ -1,6 +1,7 @@
 #include "CrossPointSettings.h"
 
 #include <BoardConfig.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
@@ -52,6 +53,22 @@ void legacyFontFamilyFromPath(char* dest, size_t destLen, const char* path) {
 
 }  // namespace
 
+namespace {
+
+CrossPointSettings::ButtonAction buttonActionForHomeAction(const uint8_t value) {
+  using A = CrossPointSettings::ButtonAction;
+  // Indexed by the persisted HomeButtonAction value.
+  static constexpr A MAP[] = {A::Home,      A::None,     A::PageForward, A::Refresh,    A::Footnotes,  A::Confirm,
+                              A::KoSync,    A::Bookmark, A::Dictionary,  A::ReaderMenu, A::LightToggle};
+  static_assert(std::size(MAP) == static_cast<size_t>(HomeButtonAction::Count));
+  return value < std::size(MAP) ? MAP[value] : A::None;
+}
+
+}  // namespace
+
+// Defaults for boards and files without "buttonBindings", derived from the
+// scalar control settings they replace so an upgrade keeps each button's
+// behaviour. Those settings are read only here once bindings exist.
 void CrossPointSettings::ensureButtonBindings() {
   if (buttonBindingsReady) return;
   memset(buttonBindings, 0, sizeof(buttonBindings));
@@ -59,40 +76,69 @@ void CrossPointSettings::ensureButtonBindings() {
   auto bind = [this](uint8_t button, PressKind kind, A action) {
     buttonBindings[button][kind] = static_cast<uint8_t>(action);
   };
+  // Back's long press stays unbound so each screen keeps its own Back hold
+  // (the reader's file browser / Home, see ReaderUtils::handleBackNavigation).
   bind(frontButtonBack, SHORT, A::Back);
   bind(frontButtonConfirm, SHORT, A::Confirm);
   bind(frontButtonLeft, SHORT, A::PageBack);
   bind(frontButtonRight, SHORT, A::PageForward);
-  bind(4, SHORT, sideButtonLayout == NEXT_PREV ? A::PageForward :
-                   sideButtonLayout == SIDE_BUTTONS_DISABLED ? A::None : A::PageBack);
-  bind(5, SHORT, sideButtonLayout == NEXT_PREV ? A::PageBack :
-                   sideButtonLayout == SIDE_BUTTONS_DISABLED ? A::None : A::PageForward);
-  bind(7, SHORT, A::Home);
-  bind(6, LONG, A::Sleep);
-  bind(6, SHORT, shortPwrBtn == SLEEP ? A::Sleep : shortPwrBtn == PAGE_TURN ? A::PageForward :
-                 shortPwrBtn == FORCE_REFRESH ? A::Refresh : shortPwrBtn == FOOTNOTES ? A::Footnotes :
-                 shortPwrBtn == PWR_CONFIRM ? A::Confirm : A::None);
-  if (BoardConfig::isX4Pro()) {
-    bind(6, DOUBLE, A::LightToggle);
-    if (shortPwrBtn == IGNORE) bind(6, SHORT, A::Confirm);
+  A sideUp = A::PageBack;
+  A sideDown = A::PageForward;
+  switch (sideButtonLayout) {
+    case NEXT_PREV:
+      std::swap(sideUp, sideDown);
+      break;
+    case SIDE_BUTTONS_DISABLED:
+      sideUp = sideDown = A::None;
+      break;
+    case NEXT_NEXT:
+      sideUp = A::PageForward;
+      break;
+    case PREV_PREV:
+      sideDown = A::PageBack;
+      break;
+    default:
+      break;
   }
-  if (BoardConfig::isPaperMono() && shortPwrBtn == IGNORE) bind(6, SHORT, A::Sleep);
+  bind(HalGPIO::BTN_UP, SHORT, sideUp);
+  bind(HalGPIO::BTN_DOWN, SHORT, sideDown);
+  bind(HalGPIO::BTN_POWER, LONG, A::Sleep);
+  bind(HalGPIO::BTN_POWER, SHORT,
+       shortPwrBtn == SLEEP           ? A::Sleep
+       : shortPwrBtn == PAGE_TURN     ? A::PageForward
+       : shortPwrBtn == FORCE_REFRESH ? A::Refresh
+       : shortPwrBtn == FOOTNOTES     ? A::Footnotes
+       : shortPwrBtn == PWR_CONFIRM   ? A::Confirm
+                                      : A::None);
+  if (BoardConfig::isX4Pro()) {
+    if (doubleClickPwrLight) bind(HalGPIO::BTN_POWER, DOUBLE, A::LightToggle);
+    if (shortPwrBtn == IGNORE) bind(HalGPIO::BTN_POWER, SHORT, A::Confirm);
+  }
+  if (BoardConfig::isPaperMono() && shortPwrBtn == IGNORE) bind(HalGPIO::BTN_POWER, SHORT, A::Sleep);
   if (BoardConfig::ACTIVE.input.power != BoardConfig::PIN_UNASSIGNED &&
       BoardConfig::ACTIVE.input.power == BoardConfig::ACTIVE.input.confirm && shortPwrBtn == IGNORE)
-    bind(6, SHORT, A::Confirm);
-  if (longPressButtonBehavior == CHAPTER_SKIP) {
-    bind(4, LONG, A::ChapterBack);
-    bind(5, LONG, A::ChapterForward);
-  } else if (longPressButtonBehavior == ORIENTATION_CHANGE) {
-    bind(4, LONG, A::Rotate);
-    bind(5, LONG, A::Rotate);
+    bind(HalGPIO::BTN_POWER, SHORT, A::Confirm);
+  // The long-press page-button behaviour applied to the side and front page buttons alike.
+  if (longPressButtonBehavior == CHAPTER_SKIP || longPressButtonBehavior == ORIENTATION_CHANGE) {
+    const bool skip = longPressButtonBehavior == CHAPTER_SKIP;
+    const uint8_t pageButtons[] = {HalGPIO::BTN_UP, HalGPIO::BTN_DOWN, frontButtonLeft, frontButtonRight};
+    for (const uint8_t button : pageButtons) {
+      const A shortAction = buttonAction(button, SHORT);
+      if (shortAction != A::PageBack && shortAction != A::PageForward) continue;
+      bind(button, LONG, !skip ? A::Rotate : shortAction == A::PageBack ? A::ChapterBack : A::ChapterForward);
+    }
   }
-  const A menuLong = longPressMenuFunction == LP_MENU_BOOKMARK ? A::Bookmark :
-                     longPressMenuFunction == LP_MENU_DICTIONARY ? A::Dictionary :
-                     longPressMenuFunction == LP_MENU_KOSYNC ? A::KoSync :
-                     longPressMenuFunction == LP_MENU_READER_MENU ? A::ReaderMenu : A::None;
+  const A menuLong = longPressMenuFunction == LP_MENU_BOOKMARK      ? A::Bookmark
+                     : longPressMenuFunction == LP_MENU_DICTIONARY  ? A::Dictionary
+                     : longPressMenuFunction == LP_MENU_KOSYNC      ? A::KoSync
+                     : longPressMenuFunction == LP_MENU_READER_MENU ? A::ReaderMenu
+                                                                    : A::None;
   bind(frontButtonConfirm, LONG, menuLong);
-  bind(7, LONG, menuLong);
+  // The capacitive Home key keeps its Home Button Gestures (fromJson has
+  // already folded a legacy longPressMenuFunction into the long press).
+  bind(HOME_BUTTON, SHORT, buttonActionForHomeAction(homeButtonTapAction));
+  bind(HOME_BUTTON, LONG, buttonActionForHomeAction(homeButtonLongPressAction));
+  bind(HOME_BUTTON, DOUBLE, buttonActionForHomeAction(homeButtonDoubleTapAction));
   buttonBindingsReady = true;
 }
 
@@ -284,24 +330,6 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   frontButtonRight =
       clamp(doc["frontButtonRight"] | (uint8_t)FRONT_HW_RIGHT, FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_RIGHT);
   validateFrontButtonMapping(s);
-  JsonArrayConst bindings = doc["buttonBindings"].as<JsonArrayConst>();
-  if (bindings.size() == BUTTON_COUNT) {
-    bool valid = true;
-    for (uint8_t button = 0; button < BUTTON_COUNT; ++button) {
-      JsonArrayConst row = bindings[button].as<JsonArrayConst>();
-      if (row.size() != PRESS_COUNT) { valid = false; break; }
-      for (uint8_t kind = 0; kind < PRESS_COUNT; ++kind) {
-        const uint8_t action = row[kind] | static_cast<uint8_t>(ButtonAction::None);
-        if (action >= static_cast<uint8_t>(ButtonAction::Count)) { valid = false; break; }
-        buttonBindings[button][kind] = action;
-      }
-    }
-    buttonBindingsReady = valid;
-  }
-  if (!buttonBindingsReady) {
-    ensureButtonBindings();
-    needsResave = true;
-  }
 
   // Reader font size — an actual point size since 1.5. Files written by 1.4 and
   // earlier hold the old SMALL/MEDIUM/LARGE/EXTRA_LARGE slot in 0..3; no font is
@@ -326,6 +354,33 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       s.homeButtonLongPressAction = static_cast<uint8_t>(LEGACY[s.longPressMenuFunction]);
       needsResave = true;
     }
+  }
+
+  // Per-button bindings; without them the defaults come from the legacy
+  // control settings parsed above.
+  JsonArrayConst bindings = doc["buttonBindings"].as<JsonArrayConst>();
+  if (bindings.size() == BUTTON_COUNT) {
+    bool valid = true;
+    for (uint8_t button = 0; button < BUTTON_COUNT; ++button) {
+      JsonArrayConst row = bindings[button].as<JsonArrayConst>();
+      if (row.size() != PRESS_COUNT) {
+        valid = false;
+        break;
+      }
+      for (uint8_t kind = 0; kind < PRESS_COUNT; ++kind) {
+        const uint8_t action = row[kind] | static_cast<uint8_t>(ButtonAction::None);
+        if (action >= static_cast<uint8_t>(ButtonAction::Count)) {
+          valid = false;
+          break;
+        }
+        buttonBindings[button][kind] = action;
+      }
+    }
+    buttonBindingsReady = valid;
+  }
+  if (!buttonBindingsReady) {
+    ensureButtonBindings();
+    needsResave = true;
   }
 
   // SD card font family name — not in SettingsList, load manually

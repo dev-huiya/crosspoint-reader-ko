@@ -1184,6 +1184,7 @@ void CrossPointWebServer::handleGetSettings() const {
 
   for (const auto& s : settings) {
     if (!s.key) continue;  // Skip ACTION-only entries
+    if (isReplacedByButtonBindings(s.valuePtr)) continue;
 
     doc.clear();
     doc["key"] = s.key;
@@ -1280,6 +1281,7 @@ void CrossPointWebServer::handlePostSettings() {
 
   for (const auto& s : settings) {
     if (!s.key) continue;
+    if (isReplacedByButtonBindings(s.valuePtr)) continue;
     if (!doc[s.key].is<JsonVariant>()) continue;
 
     switch (s.type) {

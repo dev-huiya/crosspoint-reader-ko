@@ -49,3 +49,29 @@ TEST(ButtonPressClassifierTest, NativeLongAndSuppressionDoNotLeakShort) {
   suppressed.suppress();
   EXPECT_EQ(suppressed.update(30, false, true, false, false, true), Event::None);
 }
+
+TEST(ButtonPressClassifierTest, ResetDropsPendingFirstClickOnly) {
+  ButtonPressClassifier input;
+  input.update(10, true, false, true, false, true);
+  input.update(40, false, true, false, false, true);
+  input.reset();
+  EXPECT_EQ(input.update(600, false, false, false, false, true), Event::None);
+
+  // A press in progress still completes after a reset.
+  input.update(700, true, false, true, false, false);
+  input.reset();
+  EXPECT_EQ(input.update(730, false, true, false, false, false), Event::Short);
+}
+
+TEST(ButtonPressClassifierTest, UnboundLongReleasesAsShort) {
+  ButtonPressClassifier input;
+  input.update(10, true, false, true, false, false, false);
+  EXPECT_EQ(input.update(710, false, false, true, false, false, false), Event::Long);
+  EXPECT_EQ(input.update(900, false, true, false, false, false, false), Event::Short);
+
+  // A screen that consumed the hold suppresses the release.
+  input.update(1000, true, false, true, false, false, false);
+  EXPECT_EQ(input.update(1700, false, false, true, false, false, false), Event::Long);
+  input.suppress();
+  EXPECT_EQ(input.update(1800, false, true, false, false, false, false), Event::None);
+}

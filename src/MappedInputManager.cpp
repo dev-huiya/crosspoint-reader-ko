@@ -15,27 +15,10 @@
 namespace fui = freeink::ui;
 static_assert(static_cast<uint8_t>(CrossPointSettings::ButtonAction::Count) <= 32);
 
-void MappedInputManager::update(const bool deferHomeButtonAction) const {
+void MappedInputManager::update(const bool deferCommandActions) const {
   gpio.update();
-  homeAction = HomeButtonAction::Ignore;
-  if (gpio.hasHomeKey()) {
-    homeAction = homeButtonInput.update(millis(), gpio.wasHomeKeyTapped(), gpio.wasHomeKeyLongPressed(),
-                                        wasSwipe() != SwipeDir::None, gpio.wasHomeKeyPressed(),
-                                        static_cast<HomeButtonAction>(SETTINGS.homeButtonTapAction),
-                                        static_cast<HomeButtonAction>(SETTINGS.homeButtonDoubleTapAction),
-                                        static_cast<HomeButtonAction>(SETTINGS.homeButtonLongPressAction));
-  }
-  if (deferHomeButtonAction) {
-    // Keep the first action observed during a synchronous transfer. Home must
-    // still be visible now so the transfer can cancel and unwind promptly.
-    if (homeAction != HomeButtonAction::Ignore && deferredHomeAction == HomeButtonAction::Ignore) {
-      deferredHomeAction = homeAction;
-    }
-  } else if (deferredHomeAction != HomeButtonAction::Ignore) {
-    homeAction = deferredHomeAction;
-    deferredHomeAction = HomeButtonAction::Ignore;
-  }
   actionEvents = 0;
+  unboundHoldEvents = 0;
   const unsigned long now = millis();
   const auto& pins = BoardConfig::ACTIVE.input;
   const int8_t physicalPins[] = {pins.back, pins.confirm, pins.left, pins.right, pins.up, pins.down, pins.power};
@@ -53,13 +36,18 @@ void MappedInputManager::update(const bool deferHomeButtonAction) const {
     const bool held = home ? false : gpio.isPressed(button);
     const bool doubleEnabled = SETTINGS.buttonAction(button, CrossPointSettings::DOUBLE) !=
                                CrossPointSettings::ButtonAction::None;
+    const bool longBound =
+        SETTINGS.buttonAction(button, CrossPointSettings::LONG) != CrossPointSettings::ButtonAction::None;
     switch (pressState[button].update(now, pressed, released, held, home && gpio.wasHomeKeyLongPressed(),
-                                      doubleEnabled)) {
+                                      doubleEnabled, longBound)) {
       case ButtonPressClassifier::Event::Short:
         emitButtonAction(button, CrossPointSettings::SHORT);
         break;
       case ButtonPressClassifier::Event::Long:
         emitButtonAction(button, CrossPointSettings::LONG);
+        if (!longBound) {
+          unboundHoldEvents |= uint32_t{1} << SETTINGS.buttonBindings[button][CrossPointSettings::SHORT];
+        }
         break;
       case ButtonPressClassifier::Event::Double:
         emitButtonAction(button, CrossPointSettings::DOUBLE);
@@ -68,9 +56,24 @@ void MappedInputManager::update(const bool deferHomeButtonAction) const {
         break;
     }
   }
+  // Command actions (chapter skip onward) seen while a blocking transfer pumps
+  // input run on the next main-loop pass; navigation and Home stay live so the
+  // transfer can cancel promptly.
+  constexpr uint32_t COMMAND_ACTIONS = ~((uint32_t{1} << static_cast<uint8_t>(CrossPointSettings::ButtonAction::ChapterBack)) - 1);
+  if (deferCommandActions) {
+    deferredActionEvents |= actionEvents & COMMAND_ACTIONS;
+  } else if (deferredActionEvents != 0) {
+    actionEvents |= deferredActionEvents;
+    deferredActionEvents = 0;
+  }
   for (uint8_t value = 0; value <= static_cast<uint8_t>(Button::ScreenDown); ++value) {
     if (!isPressed(static_cast<Button>(value))) longPressFiredButtons &= ~(1u << value);
   }
+}
+
+void MappedInputManager::resetHomeButtonInput() const {
+  pressState[CrossPointSettings::HOME_BUTTON].reset();
+  deferredActionEvents = 0;
 }
 
 void MappedInputManager::emitButtonAction(uint8_t button, CrossPointSettings::PressKind kind) const {
@@ -83,8 +86,13 @@ bool MappedInputManager::wasAction(CrossPointSettings::ButtonAction action) cons
   return (actionEvents & (uint32_t{1} << static_cast<uint8_t>(action))) != 0;
 }
 
+bool MappedInputManager::wasUnboundHold(CrossPointSettings::ButtonAction shortAction) const {
+  return (unboundHoldEvents & (uint32_t{1} << static_cast<uint8_t>(shortAction))) != 0;
+}
+
 void MappedInputManager::suppressActions() const {
   actionEvents = 0;
+  unboundHoldEvents = 0;
   for (auto& state : pressState) state.suppress();
 }
 
@@ -128,8 +136,8 @@ MappedInputManager::Button MappedInputManager::mapScreenDirection(const Button b
   return directions[orientation][direction];
 }
 
-bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint8_t) const) const {
-  if (SETTINGS.buttonBindingsReady && (fn == &HalGPIO::wasPressed || fn == &HalGPIO::wasReleased)) {
+bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint8_t) const, const bool physical) const {
+  if (!physical && SETTINGS.buttonBindingsReady && (fn == &HalGPIO::wasPressed || fn == &HalGPIO::wasReleased)) {
     using A = CrossPointSettings::ButtonAction;
     switch (button) {
       case Button::Back: return wasAction(A::Back);
@@ -204,17 +212,17 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
     case Button::NavNext:
       // Logical "next item" navigation: side Down + front Right, with the control axis flipped in
       // INVERTED / LANDSCAPE_CCW under the live orientation policy, matching the rotated hint labels.
-      return isNavDirectionSwapped() ? (mapButton(Button::Up, fn) || mapButton(Button::Left, fn))
-                                     : (mapButton(Button::Down, fn) || mapButton(Button::Right, fn));
+      return isNavDirectionSwapped() ? (mapButton(Button::Up, fn, physical) || mapButton(Button::Left, fn, physical))
+                                     : (mapButton(Button::Down, fn, physical) || mapButton(Button::Right, fn, physical));
     case Button::NavPrevious:
       // Logical "previous item" navigation: side Up + front Left, axis-flipped in the same orientations.
-      return isNavDirectionSwapped() ? (mapButton(Button::Down, fn) || mapButton(Button::Right, fn))
-                                     : (mapButton(Button::Up, fn) || mapButton(Button::Left, fn));
+      return isNavDirectionSwapped() ? (mapButton(Button::Down, fn, physical) || mapButton(Button::Right, fn, physical))
+                                     : (mapButton(Button::Up, fn, physical) || mapButton(Button::Left, fn, physical));
     case Button::ScreenLeft:
     case Button::ScreenRight:
     case Button::ScreenUp:
     case Button::ScreenDown:
-      return mapButton(mapScreenDirection(button), fn);
+      return mapButton(mapScreenDirection(button), fn, physical);
   }
 
   return false;
@@ -409,7 +417,6 @@ bool MappedInputManager::wasPowerConfirmClick() const {
 #endif
 
 bool MappedInputManager::wasPressed(const Button button) const {
-  if (button == Button::Confirm && homeAction == HomeButtonAction::Confirm) return true;
   if (button == Button::Back && wasBackGesture()) return true;
 #if FREEINK_CAP_TOUCH
   if (!SETTINGS.buttonBindingsReady && button == Button::Confirm && wasPowerConfirmClick()) return true;
@@ -418,7 +425,6 @@ bool MappedInputManager::wasPressed(const Button button) const {
 }
 
 bool MappedInputManager::wasReleased(const Button button) const {
-  if (button == Button::Confirm && homeAction == HomeButtonAction::Confirm) return true;
   if (button == Button::Back && wasBackGesture()) return true;
 #if FREEINK_CAP_TOUCH
   if (!SETTINGS.buttonBindingsReady && button == Button::Confirm && wasPowerConfirmClick()) return true;
@@ -427,13 +433,30 @@ bool MappedInputManager::wasReleased(const Button button) const {
 }
 
 bool MappedInputManager::wasLongPressed(const Button button, const unsigned long thresholdMs) const {
-  if (SETTINGS.buttonBindingsReady) return false;
   if (!isPressed(button)) return false;
+  // A held button with its own long-press binding runs that instead.
+  if (SETTINGS.buttonBindingsReady && heldButtonHasLongBinding()) return false;
   const uint16_t bit = 1u << static_cast<uint8_t>(button);
   if ((longPressFiredButtons & bit) != 0 || getHeldTime() < thresholdMs) return false;
   longPressFiredButtons |= bit;
   suppressNextRelease(button);
+  if (SETTINGS.buttonBindingsReady) {
+    // The screen consumed this hold: no bound action on its release either.
+    for (uint8_t hw = 0; hw < CrossPointSettings::HOME_BUTTON; ++hw) {
+      if (gpio.isPressed(hw)) pressState[hw].suppress();
+    }
+  }
   return true;
+}
+
+bool MappedInputManager::heldButtonHasLongBinding() const {
+  for (uint8_t hw = 0; hw < CrossPointSettings::HOME_BUTTON; ++hw) {
+    if (gpio.isPressed(hw) &&
+        SETTINGS.buttonAction(hw, CrossPointSettings::LONG) != CrossPointSettings::ButtonAction::None) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void MappedInputManager::suppressNextRelease(const Button button) const {
@@ -444,7 +467,7 @@ bool MappedInputManager::consumeSuppressedRelease() const {
   uint16_t released = 0;
   for (uint8_t value = 0; value <= static_cast<uint8_t>(Button::ScreenDown); ++value) {
     const uint16_t bit = 1u << value;
-    if ((suppressedReleaseButtons & bit) != 0 && mapButton(static_cast<Button>(value), &HalGPIO::wasReleased)) {
+    if ((suppressedReleaseButtons & bit) != 0 && mapButton(static_cast<Button>(value), &HalGPIO::wasReleased, true)) {
       released |= bit;
     }
   }
@@ -452,10 +475,9 @@ bool MappedInputManager::consumeSuppressedRelease() const {
   return released != 0;
 }
 
-bool MappedInputManager::isPressed(const Button button) const {
-  if (SETTINGS.buttonBindingsReady) return false;
-  return mapButton(button, &HalGPIO::isPressed);
-}
+// Physical state through the front-button and side-layout mapping, also with
+// bindings: holds and auto-repeat need it, and bound actions never read it.
+bool MappedInputManager::isPressed(const Button button) const { return mapButton(button, &HalGPIO::isPressed); }
 
 bool MappedInputManager::wasAnyPressed() const { return gpio.wasAnyPressed(); }
 
@@ -464,8 +486,8 @@ bool MappedInputManager::wasAnyReleased() const { return gpio.wasAnyReleased(); 
 bool MappedInputManager::wasTouchActivity() const { return gpio.wasTouchActivity(); }
 
 unsigned long MappedInputManager::getHeldTime() const {
-  // A mapped action has its own meaning, independent of the contact duration.
-  if (homeAction != HomeButtonAction::Ignore) return 0;
+  // A bound action has its own meaning, independent of the contact duration.
+  if (actionEvents != 0) return 0;
   if (!gpio.wasAnyPressed() && !gpio.wasAnyReleased() && touchHeldOverrideValid &&
       millis() - touchHeldOverrideAt <= TOUCH_HELD_OVERRIDE_WINDOW_MS) {
     return touchHeldOverrideMs;

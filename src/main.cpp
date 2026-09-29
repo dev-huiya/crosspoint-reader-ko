@@ -163,6 +163,13 @@ void restartToHomeAfterStorageHandoff() {
   ESP.restart();
 }
 
+// A single power click sleeps, so a single click also wakes.
+bool powerClickSleeps() {
+  return SETTINGS.buttonBindingsReady ? SETTINGS.buttonAction(HalGPIO::BTN_POWER, CrossPointSettings::SHORT) ==
+                                            CrossPointSettings::ButtonAction::Sleep
+                                      : SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP;
+}
+
 void toggleFrontlight() {
   if (!Frontlight.present()) return;
   const bool lightOn = !Frontlight.isOn();
@@ -402,7 +409,7 @@ void setup() {
     case HalGPIO::WakeupReason::PowerButton:
       // With Short Power Button Press = Sleep, a single click wakes on any
       // device; otherwise the button must still be held (ghost-wake debounce).
-      if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
+      if (!wakeHoldVerified && !powerClickSleeps()) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
         Storage.prepareForDeepSleep();
         powerManager.startDeepSleep(gpio);
@@ -719,12 +726,8 @@ void loop() {
 #endif
 
   // Refresh screen when power button is short-pressed with FORCE_REFRESH setting.
-  if (mappedInputManager.homeButtonAction() == HomeButtonAction::ToggleFrontlight) {
-    toggleFrontlight();
-  }
-  if (mappedInputManager.homeButtonAction() == HomeButtonAction::Refresh ||
-      (!SETTINGS.buttonBindingsReady && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
-       mappedInputManager.wasReleased(MappedInputManager::Button::Power))) {
+  if (!SETTINGS.buttonBindingsReady && SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FORCE_REFRESH &&
+      mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
     LOG_DBG("MAIN", "Manual screen refresh triggered");
     if (!activityManager.handleForcedRefresh()) {
       RenderLock lock;

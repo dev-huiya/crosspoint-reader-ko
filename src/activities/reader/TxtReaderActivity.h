@@ -80,6 +80,8 @@ class TxtReaderActivity final : public ReaderActivity {
   unsigned long pageTurnDuration = 0;
   uint8_t currentPageTurnOption = 0;  // index into the menu's page-turn rates (0 = off)
   uint8_t currentPageJumpOption = 0;  // index into PAGE_JUMP_STEPS (0 = off)
+  // Pages per long-press jump, 0 when off.
+  int pageJumpStep() const;
   bool pendingScreenshot = false;
 
   void renderPage(GfxRenderer& renderer);

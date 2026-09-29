@@ -239,6 +239,19 @@ inline std::vector<StrId> homeThemeValues() {
   return {VALUES, VALUES + count};
 }
 
+// Scalar button settings the per-button bindings replace. They stay in the
+// list, so settings.json keeps them, only as the defaults source of
+// CrossPointSettings::ensureButtonBindings(); neither the device nor the web
+// settings UI shows them.
+inline bool isReplacedByButtonBindings(uint8_t CrossPointSettings::* field) {
+  return field == &CrossPointSettings::sideButtonLayout ||
+         field == &CrossPointSettings::frontButtonFollowOrientation ||
+         field == &CrossPointSettings::longPressButtonBehavior ||
+         field == &CrossPointSettings::longPressMenuFunction || field == &CrossPointSettings::doubleClickPwrLight ||
+         field == &CrossPointSettings::shortPwrBtn || field == &CrossPointSettings::pwrBtnFootnoteBack ||
+         home_button::isSetting(field);
+}
+
 // Shared settings list used by both the device settings UI and the web settings API.
 // Each entry has a key (for JSON API) and category (for grouping).
 // ACTION-type entries and entries without a key are device-only.

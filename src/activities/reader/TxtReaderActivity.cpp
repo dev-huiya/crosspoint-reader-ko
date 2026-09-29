@@ -642,18 +642,30 @@ bool TxtReaderActivity::handleFormatInput() {
     }
   }
 
-  // Home-key boards have no front Confirm button: the Home-key gesture mapped
-  // to "reader menu" (Home Button Gestures) opens it, as in the EPUB reader.
-  const bool homeKeyMenu = mappedInput.homeButtonAction() == HomeButtonAction::ReaderMenu;
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || homeKeyMenu ||
+  // A button bound to "reader menu" reaches it through handleButtonAction().
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
       ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
     openReaderMenu();
     return true;
   }
 
   // Long-press page jump chosen in the reader menu. Independent of the
-  // long-press button setting: the menu choice is the whole opt-in.
-  if (currentPageJumpOption > 0 && currentPageJumpOption < std::size(PAGE_JUMP_STEPS)) {
+  // long-press button setting: the menu choice is the whole opt-in. With
+  // button bindings a page button's hold arrives as an unbound hold, or as a
+  // chapter-skip action (handleButtonAction()).
+  if (SETTINGS.buttonBindingsReady && pageJumpStep() > 0) {
+    using Action = CrossPointSettings::ButtonAction;
+    const bool next = mappedInput.wasUnboundHold(Action::PageForward) || mappedInput.wasUnboundHold(Action::Right);
+    const bool prev = mappedInput.wasUnboundHold(Action::PageBack) || mappedInput.wasUnboundHold(Action::Left);
+    if (next || prev) {
+      mappedInput.suppressActions();  // the release must not also turn a page
+      skipPages(next ? pageJumpStep() : -pageJumpStep());
+      requestUpdate();
+      return true;
+    }
+  }
+  if (!SETTINGS.buttonBindingsReady && currentPageJumpOption > 0 &&
+      currentPageJumpOption < std::size(PAGE_JUMP_STEPS)) {
     using Button = MappedInputManager::Button;
     const int step = PAGE_JUMP_STEPS[currentPageJumpOption];
     const bool swapFront = mappedInput.isNavDirectionSwapped();
@@ -691,10 +703,25 @@ bool TxtReaderActivity::handleFormatInput() {
   return false;
 }
 
+int TxtReaderActivity::pageJumpStep() const {
+  return currentPageJumpOption < std::size(PAGE_JUMP_STEPS) ? PAGE_JUMP_STEPS[currentPageJumpOption] : 0;
+}
+
 bool TxtReaderActivity::handleButtonAction(CrossPointSettings::ButtonAction action) {
   using A = CrossPointSettings::ButtonAction;
+  if (!initialized) return false;
   if (ReaderActivity::handleButtonAction(action)) return true;
-  if (action == A::ReaderMenu) { openReaderMenu(); return true; }
+  if (action == A::ReaderMenu) {
+    automaticPageTurnActive = false;
+    openReaderMenu();
+    return true;
+  }
+  // TXT has no chapters: a chapter-skip binding jumps by the menu's page step.
+  if ((action == A::ChapterBack || action == A::ChapterForward) && pageJumpStep() > 0) {
+    skipPages(action == A::ChapterForward ? pageJumpStep() : -pageJumpStep());
+    requestUpdate();
+    return true;
+  }
   if (action == A::Rotate) {
     SETTINGS.orientation = (SETTINGS.orientation + 1) % CrossPointSettings::ORIENTATION_COUNT;
     SETTINGS.saveToFile();

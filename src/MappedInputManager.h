@@ -4,7 +4,6 @@
 
 #include "ButtonPressClassifier.h"
 #include "CrossPointSettings.h"
-#include "util/HomeButtonInput.h"
 
 class GfxRenderer;
 namespace freeink {
@@ -43,11 +42,17 @@ class MappedInputManager {
 
   MappedInputManager(HalGPIO& gpio, const GfxRenderer& renderer) : gpio(gpio), renderer(renderer) {}
 
-  // Blocking transfer loops pump physical input themselves. Defer configured
-  // Home-key actions so the next main-loop pass can dispatch them, while the
-  // current action remains available for immediate Home cancellation.
-  void update(bool deferHomeButtonAction = false) const;
+  // Blocking transfer loops pump physical input themselves. Defer bound
+  // command actions so the next main-loop pass can dispatch them, while Back
+  // and Home remain available for immediate cancellation.
+  void update(bool deferCommandActions = false) const;
+  // One-frame action from the per-button bindings (SETTINGS.buttonBindings).
   bool wasAction(CrossPointSettings::ButtonAction action) const;
+  // A long press on a button whose long press is unbound, reported by the
+  // button's short-press action so a screen can give the hold its own meaning
+  // (then call suppressActions(), or the release also runs the short press).
+  bool wasUnboundHold(CrossPointSettings::ButtonAction shortAction) const;
+  // Drops this frame's actions and the presses in progress (button combos).
   void suppressActions() const;
 #if FREEINK_CAP_TOUCH
   // X4 Pro delays a single power click until its frontlight double-click window
@@ -97,12 +102,9 @@ class MappedInputManager {
   // is intentionally unused. Other boards retain the bottom-edge Home gesture.
   // The reader menu remains on its existing top-edge gesture and middle tap.
   bool wasHomeGesture() const;
-  // Configured one-frame action, independent of the gesture that triggered it.
-  HomeButtonAction homeButtonAction() const { return homeAction; }
-  void resetHomeButtonInput() const {
-    homeButtonInput.reset();
-    deferredHomeAction = HomeButtonAction::Ignore;
-  }
+  // Forgets a pending Home-key tap so it cannot pair with a tap on the next
+  // screen as a double press.
+  void resetHomeButtonInput() const;
   bool wasMenuGesture() const;
   // Bottom-edge up-swipe as the reader-menu gesture (SHOW_READER_MENU's Swipe
   // Up option). Only meaningful on home-key boards, where Home lives on the
@@ -140,7 +142,9 @@ class MappedInputManager {
 
   Button mapScreenDirection(Button button) const;
   Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
-  bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
+  // `physical` bypasses the button bindings (raw press and release edges).
+  bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const, bool physical = false) const;
+  bool heldButtonHasLongBinding() const;
   // SDK edge classification (fui::edgeSwipe) + the shared decode/held-time
   // bookkeeping; the wrappers below give each edge its board meaning.
   bool wasEdgeSwipe(freeink::ui::ScreenEdge edge) const;
@@ -154,9 +158,6 @@ class MappedInputManager {
   void rememberTouchHeldTime() const;
   void suppressNextRelease(Button button) const;
 
-  mutable HomeButtonInput homeButtonInput;
-  mutable HomeButtonAction homeAction = HomeButtonAction::Ignore;
-  mutable HomeButtonAction deferredHomeAction = HomeButtonAction::Ignore;
   mutable bool touchHeldOverrideValid = false;
   mutable unsigned long touchHeldOverrideMs = 0;
   mutable unsigned long touchHeldOverrideAt = 0;
@@ -164,6 +165,8 @@ class MappedInputManager {
   mutable uint16_t suppressedReleaseButtons = 0;
   mutable ButtonPressClassifier pressState[CrossPointSettings::BUTTON_COUNT]{};
   mutable uint32_t actionEvents = 0;
+  mutable uint32_t deferredActionEvents = 0;
+  mutable uint32_t unboundHoldEvents = 0;
   void emitButtonAction(uint8_t button, CrossPointSettings::PressKind kind) const;
 #if FREEINK_CAP_TOUCH
   bool powerConfirmClickFrame = false;

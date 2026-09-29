@@ -20,7 +20,6 @@
 #include "CrossPointSettings.h"
 #include "ButtonBindingsActivity.h"
 #include "FontDownloadActivity.h"
-#include "HomeButtonSettingsActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "KeyboardLayoutsActivity.h"
 #include "LanguageSelectActivity.h"
@@ -63,7 +62,7 @@ void SettingsActivity::rebuildSettingsLists() {
   DictionaryRegistry::discover(dictionaries);
 
   for (const auto& setting : getSettingsList(&sdFontSystem.registry(), &dictionaries)) {
-    if (setting.category == StrId::STR_NONE_OPT || home_button::isSetting(setting.valuePtr)) continue;
+    if (setting.category == StrId::STR_NONE_OPT || isReplacedByButtonBindings(setting.valuePtr)) continue;
     if (setting.category == StrId::STR_CAT_DISPLAY) {
       // The sunlight fading fix is a grayscale-waveform compensation that does
       // not apply on the X4 Pro / X4 Classic (plain OTP waveform, same panels).
@@ -79,30 +78,25 @@ void SettingsActivity::rebuildSettingsLists() {
       if (setting.nameId == StrId::STR_TOUCH_ZONE_LAYOUT && !SETTINGS.readerTapZonesActive()) continue;
       readerSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_CONTROLS) {
-      if (BoardConfig::hasHomeKey() && setting.valuePtr == &CrossPointSettings::longPressMenuFunction) continue;
-      if (setting.valuePtr == &CrossPointSettings::pwrBtnFootnoteBack &&
-          SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::FOOTNOTES) {
-        continue;
-      }
-      // Legacy scalar controls remain in settings.json and the web API for migration.
+      // Only the controls the button bindings do not cover (tilt page turn,
+      // the reader's Back-to-file-browser swap) remain here.
+      controlsSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_SYSTEM) {
       systemSettings.push_back(setting);
     }
   }
 
-  // Append device-only ACTION items
+  // Append device-only ACTION items. Each physical button opens its
+  // short/long/double press bindings, ahead of the remaining controls.
+  auto buttonIt = controlsSettings.begin();
   for (uint8_t button = 0; button < CrossPointSettings::BUTTON_COUNT; ++button) {
     if (!buttonBindingAvailable(button)) continue;
     auto item = SettingInfo::Action(buttonBindingLabel(button), SettingAction::ButtonBindings);
     item.valueRange.min = button;
-    controlsSettings.push_back(item);
+    buttonIt = controlsSettings.insert(buttonIt, item) + 1;
   }
   if (BoardConfig::hasTouch() && SETTINGS.readerTapZonesActive()) {
     readerSettings.push_back(SettingInfo::Action(StrId::STR_TOUCH_ZONE_LAYOUT, SettingAction::TouchZoneLayout));
-  }
-  if (BoardConfig::hasHomeKey()) {
-    controlsSettings.insert(controlsSettings.begin(),
-                            SettingInfo::Action(StrId::STR_HOME_BUTTON, SettingAction::HomeButton));
   }
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   // Clock configuration only exists where the RTC probe found hardware; on
@@ -363,16 +357,6 @@ void SettingsActivity::toggleCurrentSetting() {
     auto resultHandler = [this](const ActivityResult&) { SETTINGS.saveToFile(); };
 
     switch (setting.action) {
-      case SettingAction::HomeButton: {
-        // Activities must outlive this call and are owned by the activity stack.
-        auto activity = makeUniqueNoThrow<HomeButtonSettingsActivity>(renderer, mappedInput);
-        if (!activity) {
-          LOG_ERR("SET", "OOM: Home button settings");
-          return;
-        }
-        startActivityForResult(std::move(activity), [this](const ActivityResult&) { requestUpdate(); });
-        return;
-      }
       case SettingAction::RemapFrontButtons:
         startActivityForResult(std::make_unique<ButtonRemapActivity>(renderer, mappedInput), resultHandler);
         break;
@@ -537,7 +521,7 @@ void SettingsActivity::openSleepTimeoutPicker() {
 }
 
 std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
-  if (setting.action == SettingAction::HomeButton) return tr(STR_CONFIGURE);
+  if (setting.action == SettingAction::ButtonBindings) return tr(STR_CONFIGURE);
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     return SETTINGS.*(setting.valuePtr) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
   }
