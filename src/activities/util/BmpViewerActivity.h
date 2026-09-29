@@ -16,6 +16,11 @@ class BmpViewerActivity final : public Activity {
 
  private:
   void loadSiblingImages();
+  // Confirm (or the reader-menu gesture) opens the image menu.
+  void openMenu();
+  void confirmDelete();
+  void deleteCurrentImage();
+  std::string currentFileName() const;
   void doSetSleepCover();
   bool canSetSleepCover() const;
   bool renderPng();

@@ -212,8 +212,29 @@ void FileBrowserActivity::onEnter() {
 
   auto root = Storage.open(basepath.c_str());
   if (!root) {
-    basepath = "/";
-    loadFiles();
+    // A file that no longer exists (e.g. just deleted from the image viewer)
+    // opens its parent folder with the cursor on the entry that took its
+    // place, matching the in-list delete. Anything else falls back to root.
+    const std::string missingPath = basepath;
+    const std::string parentPath = FsHelpers::extractFolderPath(missingPath);
+    auto parent = Storage.open(parentPath.c_str());
+    const bool parentIsDir = parent && parent.isDirectory();
+    if (parent) parent.close();
+
+    const size_t lastSlash = missingPath.find_last_of('/');
+    const std::string missingName = lastSlash == std::string::npos ? "" : missingPath.substr(lastSlash + 1);
+    if (parentIsDir && !missingName.empty()) {
+      basepath = parentPath;
+      loadFiles();
+      // files is sorted directories-first, then naturalLess (sortFileList).
+      const auto slot = std::count_if(files.begin(), files.end(), [&missingName](const std::string& entry) {
+        return entry.back() == '/' || FsHelpers::naturalLess(entry, missingName);
+      });
+      nav.selected = std::max(0, std::min(static_cast<int>(slot), listCount() - 1));
+    } else {
+      basepath = "/";
+      loadFiles();
+    }
   } else if (!root.isDirectory()) {
     const std::string oldPath = basepath;
     basepath = FsHelpers::extractFolderPath(basepath);

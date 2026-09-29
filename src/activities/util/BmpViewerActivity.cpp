@@ -12,6 +12,9 @@
 #include <algorithm>
 
 #include "CrossPointSettings.h"
+#include "ImageViewerMenuActivity.h"
+#include "activities/reader/ReaderUtils.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -102,14 +105,14 @@ void BmpViewerActivity::onEnter() {
     const bool hasPrevious = siblingImages.size() > 1 && currentImageIndex > 0;
     const bool hasNext = siblingImages.size() > 1 && currentImageIndex != -1 &&
                          currentImageIndex < static_cast<int>(siblingImages.size()) - 1;
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), canSetSleepCover() ? tr(STR_SET_SLEEP_COVER) : "",
-                                              hasPrevious ? "<" : "", hasNext ? ">" : "");
+    const auto labels =
+        mappedInput.mapLabels(tr(STR_BACK), tr(STR_MENU), hasPrevious ? "<" : "", hasNext ? ">" : "");
     if (renderPng()) {
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     } else {
       renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_FILE_OPEN_FAILED));
-      GUI.drawButtonHints(renderer, labels.btn1, "", "", "");
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, "", "");
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
     }
     return;
@@ -150,8 +153,8 @@ void BmpViewerActivity::onEnter() {
       bool hasNext = (siblingImages.size() > 1 && currentImageIndex != -1 &&
                       currentImageIndex < static_cast<int>(siblingImages.size()) - 1);
 
-      const auto labels = mappedInput.mapLabels(tr(STR_BACK), canSetSleepCover() ? tr(STR_SET_SLEEP_COVER) : "",
-                                                (hasPrevious ? "<" : ""), (hasNext ? ">" : ""));
+      const auto labels =
+          mappedInput.mapLabels(tr(STR_BACK), tr(STR_MENU), (hasPrevious ? "<" : ""), (hasNext ? ">" : ""));
 
       GUI.fillPopupProgress(renderer, popupRect, 50);
 
@@ -211,7 +214,7 @@ void BmpViewerActivity::onEnter() {
       // Handle file parsing error
       renderer.clearScreen();
       renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_INVALID_BMP_FILE));
-      const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+      const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_MENU), "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
     }
@@ -221,7 +224,7 @@ void BmpViewerActivity::onEnter() {
     // Handle file open error
     renderer.clearScreen();
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_FILE_OPEN_FAILED));
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_MENU), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   }
@@ -277,6 +280,72 @@ void BmpViewerActivity::doSetSleepCover() {
   onEnter();
 }
 
+std::string BmpViewerActivity::currentFileName() const {
+  const size_t lastSlash = filePath.find_last_of('/');
+  return lastSlash != std::string::npos ? filePath.substr(lastSlash + 1) : filePath;
+}
+
+void BmpViewerActivity::openMenu() {
+  auto menu = makeUniqueNoThrow<ImageViewerMenuActivity>(renderer, mappedInput, currentFileName(), canSetSleepCover());
+  if (!menu) {
+    LOG_ERR("BMP", "OOM: image viewer menu");
+    return;
+  }
+  // The image is drawn in onEnter(), not render(), so every path that returns
+  // to this screen redraws it through onEnter().
+  startActivityForResult(std::move(menu), [this](const ActivityResult& result) {
+    const auto* menuResult = std::get_if<MenuResult>(&result.data);
+    if (result.isCancelled || !menuResult) {
+      onEnter();
+      return;
+    }
+    switch (static_cast<ImageViewerMenuActivity::MenuAction>(menuResult->action)) {
+      case ImageViewerMenuActivity::MenuAction::SET_SLEEP_COVER:
+        doSetSleepCover();  // redraws via onEnter()
+        return;
+      case ImageViewerMenuActivity::MenuAction::DELETE_FILE:
+        confirmDelete();
+        return;
+    }
+    onEnter();
+  });
+}
+
+// Same prompt as the file browser's long-press delete.
+void BmpViewerActivity::confirmDelete() {
+  const std::string heading = tr(STR_DELETE) + std::string("? ");
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading, currentFileName());
+  if (!dialog) {
+    LOG_ERR("BMP", "OOM: delete confirmation");
+    onEnter();
+    return;
+  }
+  startActivityForResult(std::move(dialog), [this](const ActivityResult& result) {
+    if (result.isCancelled) {
+      LOG_DBG("BMP", "Delete cancelled by user");
+      onEnter();
+      return;
+    }
+    deleteCurrentImage();
+  });
+}
+
+void BmpViewerActivity::deleteCurrentImage() {
+  LOG_DBG("BMP", "Attempting to delete: %s", filePath.c_str());
+  if (Storage.remove(filePath.c_str())) {
+    LOG_DBG("BMP", "Deleted successfully");
+    // The browser opens the parent folder with the cursor on the entry that
+    // took the deleted file's place.
+    activityManager.goToFileBrowser(filePath);
+    return;
+  }
+
+  LOG_ERR("BMP", "Failed to delete: %s", filePath.c_str());
+  GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
+  delay(1000);
+  onEnter();
+}
+
 void BmpViewerActivity::loop() {
   // Keep CPU awake/polling so 1st click works
   Activity::loop();
@@ -312,8 +381,12 @@ void BmpViewerActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (canSetSleepCover()) doSetSleepCover();
+  // Same triggers as the reader menu: Confirm, the Home-button action mapped
+  // to the reader menu, or the touch menu gesture.
+  const bool homeKeyMenu = mappedInput.homeButtonAction() == HomeButtonAction::ReaderMenu;
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || homeKeyMenu ||
+      ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
+    openMenu();
     return;
   }
 
