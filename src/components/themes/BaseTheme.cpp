@@ -131,6 +131,18 @@ void BaseTheme::drawCoverPlaceholder(const GfxRenderer& renderer, Rect rect) {
 
 bool BaseTheme::drawCoverThumbFill(const GfxRenderer& renderer, const Bitmap& bitmap, Rect slot, const int xOffset) {
   if (slot.width <= 0 || slot.height <= 0) return false;
+  // Thumbnails are built to cover the slot, one side matching it. One well
+  // over the slot on both sides was cached for another size (e.g. a full
+  // cover copied as a thumbnail); fit it instead of showing a clipped zoom.
+  const bool oversized = bitmap.getWidth() * 4 > slot.width * 5 && bitmap.getHeight() * 4 > slot.height * 5;
+  if (oversized) {
+    const float scale = std::min(static_cast<float>(slot.width) / bitmap.getWidth(),
+                                 static_cast<float>(slot.height) / bitmap.getHeight());
+    const int width = static_cast<int>(bitmap.getWidth() * scale);
+    const int height = static_cast<int>(bitmap.getHeight() * scale);
+    return renderer.drawBitmap(bitmap, slot.x + (slot.width - width) / 2, slot.y + (slot.height - height) / 2,
+                               slot.width, slot.height);
+  }
   // xOffset nudges the centered art sideways; the clip stays on the slot.
   const int x = slot.x + (slot.width - bitmap.getWidth()) / 2 + xOffset;
   const int y = slot.y + (slot.height - bitmap.getHeight()) / 2;

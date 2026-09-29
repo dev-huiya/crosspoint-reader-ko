@@ -10,7 +10,7 @@
 //
 // The book's cache directory remembers the last lookup so a home render never
 // rescans the book's folder:
-//   sibling.src   "<size>\n<path>" of the image the cached cover came from
+//   sibling.src   "v2 <size>\n<path>" of the image the cached cover came from
 //   cover.missing the last lookup found no image
 // A lookup with `recheck` (opening the book) rescans the folder and, when the
 // result differs from the record (image added, removed, renamed or resized),
@@ -26,8 +26,8 @@ std::string resolve(const std::string& bookPath, const std::string& cacheDir, bo
 // Full-size cover BMP, with the same crop / threshold options as the embedded path.
 bool writeCoverBmp(const std::string& imagePath, const std::string& outPath, bool cropped, bool originalThresholds);
 
-// 1-bit thumbnail for the home screen, fitted to height * 0.6 x height. A BMP
-// image is copied unchanged.
+// 1-bit thumbnail for the home screen covering height * 0.6 x height, as the
+// embedded covers' thumbnails do (JPEG/PNG converters; BMP downscaled here).
 bool writeThumbBmp(const std::string& imagePath, const std::string& outPath, int height);
 
 }  // namespace sibling_cover

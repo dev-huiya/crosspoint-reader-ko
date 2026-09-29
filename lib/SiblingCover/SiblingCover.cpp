@@ -1,13 +1,16 @@
 #include "SiblingCover.h"
 
+#include <Bitmap.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <PngToBmpConverter.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string_view>
 
 namespace sibling_cover {
@@ -15,6 +18,10 @@ namespace {
 
 constexpr const char* MARKER_NAME = "/sibling.src";
 constexpr const char* MISSING_NAME = "/cover.missing";
+// Marker format version. A marker of another version counts as no lookup, so
+// the next recheck rebuilds the covers; v1 thumbnails of BMP images were full
+// size copies.
+constexpr const char* MARKER_VERSION = "v2 ";
 // Directory entry names and the marker hold full long file names (UTF-8, up
 // to 255 bytes), so their buffers live on the heap for the call.
 constexpr size_t NAME_BUFFER_SIZE = 256;
@@ -51,8 +58,10 @@ Record readRecord(const std::string& cacheDir) {
   const int read = marker.read(buffer.get(), MARKER_BUFFER_SIZE - 1);
   if (read <= 0) return record;
   buffer[read] = '\0';
+  const size_t versionLength = strlen(MARKER_VERSION);
+  if (strncmp(buffer.get(), MARKER_VERSION, versionLength) != 0) return record;
   char* newline = nullptr;
-  const unsigned long size = strtoul(buffer.get(), &newline, 10);
+  const unsigned long size = strtoul(buffer.get() + versionLength, &newline, 10);
   if (!newline || *newline != '\n' || newline[1] != '/') return record;
   record.known = true;
   record.size = size;
@@ -76,8 +85,8 @@ void writeRecord(const std::string& cacheDir, const std::string& imagePath, cons
     LOG_ERR("SIB", "Failed to record cover source in %s", cacheDir.c_str());
     return;
   }
-  char header[16];
-  const int length = snprintf(header, sizeof(header), "%u\n", static_cast<unsigned>(size));
+  char header[24];
+  const int length = snprintf(header, sizeof(header), "%s%u\n", MARKER_VERSION, static_cast<unsigned>(size));
   marker.write(header, static_cast<size_t>(length));
   marker.write(imagePath.data(), imagePath.size());
 }
@@ -116,6 +125,102 @@ bool copyFile(HalFile& src, HalFile& dst) {
     if (read <= 0 || dst.write(buffer, static_cast<size_t>(read)) != static_cast<size_t>(read)) return false;
   }
   return true;
+}
+
+void writeLE16(HalFile& out, const uint16_t value) {
+  const uint8_t bytes[] = {static_cast<uint8_t>(value), static_cast<uint8_t>(value >> 8)};
+  out.write(bytes, sizeof(bytes));
+}
+
+void writeLE32(HalFile& out, const uint32_t value) {
+  const uint8_t bytes[] = {static_cast<uint8_t>(value), static_cast<uint8_t>(value >> 8),
+                           static_cast<uint8_t>(value >> 16), static_cast<uint8_t>(value >> 24)};
+  out.write(bytes, sizeof(bytes));
+}
+
+// 1-bit BMP header, palette 0 = black, 1 = white (as the JPEG/PNG thumbnails).
+void writeBmp1BitHeader(HalFile& out, const int width, const int height, const bool topDown) {
+  const uint32_t rowBytes = static_cast<uint32_t>(width + 31) / 32 * 4;
+  const uint32_t imageSize = rowBytes * static_cast<uint32_t>(height);
+  out.write("BM", 2);
+  writeLE32(out, 62 + imageSize);
+  writeLE32(out, 0);
+  writeLE32(out, 62);
+  writeLE32(out, 40);
+  writeLE32(out, static_cast<uint32_t>(width));
+  writeLE32(out, static_cast<uint32_t>(topDown ? -height : height));
+  writeLE16(out, 1);
+  writeLE16(out, 1);
+  writeLE32(out, 0);
+  writeLE32(out, imageSize);
+  writeLE32(out, 2835);
+  writeLE32(out, 2835);
+  writeLE32(out, 2);
+  writeLE32(out, 2);
+  const uint8_t palette[] = {0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0};
+  out.write(palette, sizeof(palette));
+}
+
+// Downscales a BMP to a 1-bit thumbnail that covers width x height, like the
+// JPEG/PNG thumbnails (the draw clips the overflow). Each output pixel
+// averages its source box, then a 4x4 ordered dither sets it. Rows are
+// written in the source's order, so a bottom-up source stays bottom-up.
+bool scaleBmpThumb(HalFile& image, HalFile& thumb, const int width, const int height) {
+  Bitmap bitmap(image);
+  if (bitmap.parseHeaders() != BmpReaderError::Ok) return false;
+  const int srcW = bitmap.getWidth();
+  const int srcH = bitmap.getHeight();
+  if (srcW <= 0 || srcH <= 0 || width <= 0 || height <= 0) return false;
+  const float scale = std::max(static_cast<float>(width) / srcW, static_cast<float>(height) / srcH);
+  // Already small enough: the image itself is the thumbnail.
+  if (scale >= 1.0f) {
+    image.seek(0);
+    return copyFile(image, thumb);
+  }
+  const int outW = std::max(1, static_cast<int>(srcW * scale));
+  const int outH = std::max(1, static_cast<int>(srcH * scale));
+  const int outRowBytes = (outW + 31) / 32 * 4;
+  auto srcRow = makeUniqueNoThrow<uint8_t[]>(bitmap.getRowBytes());
+  auto grayRow = makeUniqueNoThrow<uint8_t[]>((srcW + 3) / 4);
+  auto outRow = makeUniqueNoThrow<uint8_t[]>(outRowBytes);
+  auto sums = makeUniqueNoThrow<uint32_t[]>(outW);
+  auto counts = makeUniqueNoThrow<uint16_t[]>(outW);
+  if (!srcRow || !grayRow || !outRow || !sums || !counts) {
+    LOG_ERR("SIB", "OOM: BMP thumbnail (%dx%d)", srcW, outW);
+    return false;
+  }
+  static constexpr uint8_t BAYER[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+  const auto clearBox = [&] {
+    std::fill(sums.get(), sums.get() + outW, 0u);
+    std::fill(counts.get(), counts.get() + outW, static_cast<uint16_t>(0));
+  };
+  const auto flush = [&](const int outY) {
+    std::fill(outRow.get(), outRow.get() + outRowBytes, static_cast<uint8_t>(0));
+    for (int x = 0; x < outW; ++x) {
+      // Source levels are 0 (black) .. 3 (white).
+      const uint32_t lum = counts[x] ? sums[x] * 255 / (3u * counts[x]) : 255;
+      if (lum >= BAYER[outY & 3][x & 3] * 16u + 8u) outRow[x / 8] |= static_cast<uint8_t>(0x80 >> (x % 8));
+    }
+    return thumb.write(outRow.get(), outRowBytes) == static_cast<size_t>(outRowBytes);
+  };
+  writeBmp1BitHeader(thumb, outW, outH, bitmap.isTopDown());
+  clearBox();
+  int currentY = 0;
+  for (int y = 0; y < srcH; ++y) {
+    if (bitmap.readNextRow(grayRow.get(), srcRow.get()) != BmpReaderError::Ok) return false;
+    const int outY = static_cast<int>(static_cast<int64_t>(y) * outH / srcH);
+    if (outY != currentY) {
+      if (!flush(currentY)) return false;
+      clearBox();
+      currentY = outY;
+    }
+    for (int x = 0; x < srcW; ++x) {
+      const int outX = static_cast<int>(static_cast<int64_t>(x) * outW / srcW);
+      sums[outX] += (grayRow[x / 4] >> (6 - (x % 4) * 2)) & 0x3;
+      ++counts[outX];
+    }
+  }
+  return flush(currentY);
 }
 
 }  // namespace
@@ -208,7 +313,7 @@ bool writeThumbBmp(const std::string& imagePath, const std::string& outPath, con
       success = PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(image, thumb, width, height);
       break;
     case ImageType::Bmp:
-      success = copyFile(image, thumb);
+      success = scaleBmpThumb(image, thumb, width, height);
       break;
     case ImageType::None:
       break;
