@@ -232,11 +232,14 @@ inline std::vector<StrId> buildLongPressMenuValues() {
   return {VALUES, VALUES + count};
 }
 
+// Labels are indexed by the stored UI_THEME value, so COVER_GRID keeps its
+// slot even where it is unsupported (UITheme::setTheme falls back to Lyra
+// there); dropping it would shift OPTIMIZED (5) out of range of the list.
 inline std::vector<StrId> homeThemeValues() {
-  static constexpr StrId VALUES[] = {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
-                                     StrId::STR_THEME_ROUNDEDRAFF, StrId::STR_THEME_COVER_GRID};
-  const size_t count = UITheme::supportsCoverGrid() ? std::size(VALUES) : std::size(VALUES) - 1;
-  return {VALUES, VALUES + count};
+  static constexpr StrId VALUES[] = {StrId::STR_THEME_CLASSIC,     StrId::STR_THEME_LYRA,
+                                     StrId::STR_THEME_LYRA_EXTENDED, StrId::STR_THEME_ROUNDEDRAFF,
+                                     StrId::STR_THEME_COVER_GRID,    StrId::STR_THEME_OPTIMIZED};
+  return {VALUES, VALUES + std::size(VALUES)};
 }
 
 // Shared settings list used by both the device settings UI and the web settings API.

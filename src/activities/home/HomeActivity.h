@@ -75,6 +75,15 @@ class HomeActivity final : public Activity {
   void fillCoverGridFromLibrary();
   void resolveGridCoverPaths();
   void loadGridCover(RecentBook& book, int height, bool& showingLoading, Rect& popupRect);
+  // Draws the complete BW home frame into the framebuffer (no display).
+  void drawHomeFrame();
+  // metrics.homeGrayscaleCovers: true when a visible cover has a 2-bit thumbnail.
+  bool hasGrayscaleCover(int coverHeight) const;
+  // Paints the 2-bit covers' gray levels over the displayed BW frame, then
+  // redraws the BW frame and re-syncs the controller's differential baseline.
+  void renderCoverGrayscale();
+  // Vertical step (dir = +1 down, -1 up) for grid menus; see HomeActivity.cpp.
+  static int gridVerticalIndex(int index, int bookCount, int itemCount, int columns, int dir);
 
  public:
   explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

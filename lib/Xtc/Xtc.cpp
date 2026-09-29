@@ -278,10 +278,21 @@ bool Xtc::generateCoverBmp() const {
 
 std::string Xtc::getThumbBmpPath() const { return cachePath + "/thumb_[HEIGHT].bmp"; }
 std::string Xtc::getThumbBmpPath(int height) const { return cachePath + "/thumb_" + std::to_string(height) + ".bmp"; }
+// "thumb2g_" must stay in sync with UITheme::getGrayCoverThumbPath.
+std::string Xtc::getGrayThumbBmpPath(int height) const {
+  return cachePath + "/thumb2g_" + std::to_string(height) + ".bmp";
+}
 
-bool Xtc::generateThumbBmp(int height) const {
+bool Xtc::generateThumbBmp(int height) const { return generateThumbBmpImpl(height, false); }
+
+bool Xtc::generateGrayThumbBmp(int height) const { return generateThumbBmpImpl(height, true); }
+
+// gray=false: 1-bit noise-dithered, width = 0.6 * height.
+// gray=true: 2-bit (4 levels, XTH levels preserved), 2:3 portrait.
+bool Xtc::generateThumbBmpImpl(int height, bool gray) const {
+  const std::string thumbPath = gray ? getGrayThumbBmpPath(height) : getThumbBmpPath(height);
   // Already generated
-  if (Storage.exists(getThumbBmpPath(height).c_str())) {
+  if (Storage.exists(thumbPath.c_str())) {
     return true;
   }
 
@@ -309,7 +320,7 @@ bool Xtc::generateThumbBmp(int height) const {
   const uint8_t bitDepth = parser->getBitDepth();
 
   // Calculate target dimensions for thumbnail (fit within 240x400 Continue Reading card)
-  int THUMB_TARGET_WIDTH = height * 0.6;
+  int THUMB_TARGET_WIDTH = gray ? height * 2 / 3 : static_cast<int>(height * 0.6);
   int THUMB_TARGET_HEIGHT = height;
 
   // Calculate scale factor
@@ -324,7 +335,7 @@ bool Xtc::generateThumbBmp(int height) const {
     if (generateCoverBmp()) {
       HalFile src, dst;
       if (Storage.openFileForRead("XTC", getCoverBmpPath(), src)) {
-        if (Storage.openFileForWrite("XTC", getThumbBmpPath(height), dst)) {
+        if (Storage.openFileForWrite("XTC", thumbPath, dst)) {
           uint8_t buffer[512];
           while (src.available()) {
             size_t bytesRead = src.read(buffer, sizeof(buffer));
@@ -333,7 +344,7 @@ bool Xtc::generateThumbBmp(int height) const {
         }
       }
       LOG_DBG("XTC", "Copied cover to thumb (no scaling needed)");
-      return Storage.exists(getThumbBmpPath(height).c_str());
+      return Storage.exists(thumbPath.c_str());
     }
     return false;
   }
@@ -351,7 +362,7 @@ bool Xtc::generateThumbBmp(int height) const {
   } else {
     bitmapSize = ((pageInfo.width + 7) / 8) * pageInfo.height;
   }
-  const uint32_t rowSize = (thumbWidth + 31) / 32 * 4;
+  const uint32_t rowSize = gray ? (static_cast<uint32_t>(thumbWidth) * 2 + 31) / 32 * 4 : (thumbWidth + 31) / 32 * 4;
   auto thumbScratch = makeUniqueNoThrow<uint8_t[]>(bitmapSize + rowSize);
   if (!thumbScratch) {
     LOG_ERR("XTC", "Failed to allocate thumb buffers (%lu bytes)", static_cast<unsigned long>(bitmapSize + rowSize));
@@ -367,17 +378,38 @@ bool Xtc::generateThumbBmp(int height) const {
     return false;
   }
 
-  // Create thumbnail BMP file - use 1-bit format for fast home screen rendering (no gray passes)
+  // Create thumbnail BMP file - 1-bit for fast home screen rendering (no gray passes), 2-bit for gray themes
   HalFile thumbBmp;
-  if (!Storage.openFileForWrite("XTC", getThumbBmpPath(height), thumbBmp)) {
+  if (!Storage.openFileForWrite("XTC", thumbPath, thumbBmp)) {
     LOG_DBG("XTC", "Failed to create thumb BMP file");
     return false;
   }
 
-  // Write 1-bit BMP header (top-down row order)
-  BmpHeader bmpHeader;
-  createBmpHeader(&bmpHeader, thumbWidth, thumbHeight, BmpRowOrder::TopDown);
-  thumbBmp.write(reinterpret_cast<const uint8_t*>(&bmpHeader), sizeof(bmpHeader));
+  if (gray) {
+    // Same 70-byte 2-bit header as the XTH cover (palette 0=black .. 3=white, top-down rows)
+    // clang-format off
+    uint8_t hdr[70] = {
+        'B', 'M', 0, 0, 0, 0, 0, 0, 0, 0, 70, 0, 0, 0,               // file header
+        40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0,             // DIB: w/h patched
+        0, 0, 0, 0, 0, 0, 0, 0, 0x13, 0x0B, 0, 0, 0x13, 0x0B, 0, 0,  // 0, 2835 DPI
+        4, 0, 0, 0, 4, 0, 0, 0,                                      // 4 palette colors
+        0x00, 0x00, 0x00, 0x00, 0x55, 0x55, 0x55, 0x00,              // black, dark gray
+        0xAA, 0xAA, 0xAA, 0x00, 0xFF, 0xFF, 0xFF, 0x00};             // light gray, white
+    // clang-format on
+    const uint32_t imageSize = rowSize * thumbHeight;
+    const uint32_t fileSize = sizeof(hdr) + imageSize;
+    const int32_t topDownHeight = -static_cast<int32_t>(thumbHeight);
+    memcpy(hdr + 2, &fileSize, 4);
+    memcpy(hdr + 18, &thumbWidth, 2);  // biWidth (upper bytes stay 0)
+    memcpy(hdr + 22, &topDownHeight, 4);
+    memcpy(hdr + 34, &imageSize, 4);
+    thumbBmp.write(hdr, sizeof(hdr));
+  } else {
+    // Write 1-bit BMP header (top-down row order)
+    BmpHeader bmpHeader;
+    createBmpHeader(&bmpHeader, thumbWidth, thumbHeight, BmpRowOrder::TopDown);
+    thumbBmp.write(reinterpret_cast<const uint8_t*>(&bmpHeader), sizeof(bmpHeader));
+  }
 
   // Fixed-point scale factor (16.16)
   uint32_t scaleInv_fp = static_cast<uint32_t>(65536.0f / scale);
@@ -391,7 +423,7 @@ bool Xtc::generateThumbBmp(int height) const {
   uint8_t rowsSinceYield = 0;
 
   for (uint16_t dstY = 0; dstY < thumbHeight; dstY++) {
-    memset(rowBuffer, 0xFF, rowSize);  // Start with all white (bit 1)
+    memset(rowBuffer, 0xFF, rowSize);  // Start with all white (bit 1 / 2-bit value 3)
 
     // Calculate source Y range with bounds checking
     uint32_t srcYStart = (static_cast<uint32_t>(dstY) * scaleInv_fp) >> 16;
@@ -457,6 +489,18 @@ bool Xtc::generateThumbBmp(int height) const {
       // Calculate average grayscale and quantize to 1-bit with noise dithering
       uint8_t avgGray = (totalCount > 0) ? static_cast<uint8_t>(graySum / totalCount) : 255;
 
+      if (gray) {
+        // Midpoint thresholds keep the XTH source levels (0/85/170/255) exact;
+        // averaged edges land on the nearest level.
+        const uint8_t level = avgGray < 43 ? 0 : avgGray < 128 ? 1 : avgGray < 213 ? 2 : 3;
+        const size_t byteIndex = dstX / 4;
+        const int shift = 6 - (dstX % 4) * 2;
+        if (byteIndex < rowSize) {
+          rowBuffer[byteIndex] = static_cast<uint8_t>((rowBuffer[byteIndex] & ~(0x3 << shift)) | (level << shift));
+        }
+        continue;
+      }
+
       // Hash-based noise dithering for 1-bit output
       uint32_t hash = static_cast<uint32_t>(dstX) * 374761393u + static_cast<uint32_t>(dstY) * 668265263u;
       hash = (hash ^ (hash >> 13)) * 1274126177u;
@@ -483,7 +527,7 @@ bool Xtc::generateThumbBmp(int height) const {
     thumbBmp.write(rowBuffer, rowSize);
     yieldDuringThumbnail(rowsSinceYield);
   }
-  LOG_DBG("XTC", "Generated thumb BMP (%dx%d): %s", thumbWidth, thumbHeight, getThumbBmpPath(height).c_str());
+  LOG_DBG("XTC", "Generated thumb BMP (%dx%d): %s", thumbWidth, thumbHeight, thumbPath.c_str());
   return true;
 }
 

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
@@ -16,6 +17,7 @@
 #include "components/themes/BaseTheme.h"
 #include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraTheme.h"
+#include "components/themes/optimized/OptimizedTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
 
 UITheme UITheme::instance;
@@ -68,6 +70,17 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentTheme = std::make_unique<Lyra3CoversTheme>();
       currentMetrics = &Lyra3CoversMetrics::values;
       break;
+    case CrossPointSettings::UI_THEME::OPTIMIZED: {
+      auto theme = makeUniqueNoThrow<OptimizedTheme>();
+      if (!theme) {
+        LOG_ERR("UI", "OOM: Optimized theme");
+        return;
+      }
+      currentTheme = std::move(theme);
+      currentMetrics = &OptimizedMetrics::values;
+      LOG_DBG("UI", "Using Optimized theme");
+      break;
+    }
   }
   metricsValid = false;
 }
@@ -126,6 +139,17 @@ std::string UITheme::getCoverThumbPath(std::string coverBmpPath, int coverHeight
   if (pos != std::string::npos) {
     coverBmpPath.replace(pos, 8, std::to_string(coverHeight));
   }
+  return coverBmpPath;
+}
+
+std::string UITheme::getGrayCoverThumbPath(std::string coverBmpPath, int coverHeight) {
+  // Must match Epub/Xtc::getGrayThumbBmpPath ("thumb2g_<h>.bmp").
+  static constexpr char kTemplate[] = "thumb_[HEIGHT]";
+  const size_t pos = coverBmpPath.find(kTemplate);
+  if (pos == std::string::npos) {
+    return getCoverThumbPath(std::move(coverBmpPath), coverHeight);
+  }
+  coverBmpPath.replace(pos, sizeof(kTemplate) - 1, "thumb2g_" + std::to_string(coverHeight));
   return coverBmpPath;
 }
 

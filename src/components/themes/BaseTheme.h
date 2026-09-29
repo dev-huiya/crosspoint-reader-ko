@@ -126,6 +126,13 @@ struct ThemeMetrics {
   int controlRadius;
   int sheetRadius;
   int capsuleRadius;
+
+  // Home menu columns: 1 = vertical list, >1 = row-major grid laid out by
+  // BaseTheme::homeMenuGridCell (drawing and HomeActivity touch/navigation).
+  int homeMenuColumns = 1;
+  // Home covers use 2-bit 2:3 thumbnails (thumb2g_<h>.bmp) and HomeActivity
+  // runs a grayscale pass after drawing them (drawRecentBookCoversGray).
+  bool homeGrayscaleCovers = false;
 };
 
 enum UIIcon {
@@ -273,6 +280,27 @@ class BaseTheme {
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                               const std::function<std::string(int index)>& buttonLabel,
                               const std::function<UIIcon(int index)>& rowIcon) const;
+  // Grayscale-plane pass for themes with metrics.homeGrayscaleCovers: redraw
+  // only the 2-bit cover bitmaps at the positions drawRecentBookCover used.
+  // Called with the renderer in GRAYSCALE_LSB / GRAYSCALE_MSB mode.
+  virtual void drawRecentBookCoversGray(GfxRenderer& /*renderer*/, Rect /*rect*/,
+                                        const std::vector<RecentBook>& /*recentBooks*/) const {}
+  // Cell `index` of a `count`-item home menu grid inside `rect` (row-major).
+  // A lone item on the last row spans the full width.
+  static Rect homeMenuGridCell(const ThemeMetrics& metrics, Rect rect, int index, int count) {
+    const int cols = metrics.homeMenuColumns > 0 ? metrics.homeMenuColumns : 1;
+    const int gap = metrics.menuSpacing;
+    const int innerX = rect.x + metrics.contentSidePadding;
+    const int innerW = rect.width - 2 * metrics.contentSidePadding;
+    const int cellW = (innerW - (cols - 1) * gap) / cols;
+    const int row = index / cols;
+    const int col = index % cols;
+    const bool lastRow = row == (count - 1) / cols;
+    const int itemsInRow = lastRow ? count - row * cols : cols;
+    const int width = (lastRow && itemsInRow == 1) ? innerW : cellW;
+    return Rect{innerX + col * (cellW + gap), rect.y + row * (metrics.menuRowHeight + gap), width,
+                metrics.menuRowHeight};
+  }
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
   static void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage, const int pageCount,
