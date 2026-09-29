@@ -407,20 +407,20 @@ cover; TXT books have only this one. `lib/SiblingCover` does the lookup
 (one directory pass, nothing retained) and the conversion (the existing
 JPEG/PNG converters; a BMP is downscaled to the same cover-filling size).
 The book's cache directory records the result as `sibling.src` (`v2`,
-size and path) or `cover.missing`. Opening the book rescans the folder
-and, when the image was added, removed, renamed or resized, deletes the
-cached `cover*.bmp` / `thumb_*.bmp` so they are rebuilt. An edit that
-keeps the file size needs a cache clear. The Cover Grid also shows TXT
-books' sibling covers.
+size and path) or `cover.missing`. Nothing rescans on its own: an image
+added, changed or removed later takes effect through the book's
+"Refresh cache" on Home (below), which drops the record and the cached
+`cover*.bmp` / `thumb_*.bmp`. The Cover Grid also shows TXT books'
+sibling covers.
 
 Zoomed covers on the grid: a thumbnail is drawn 1:1, centered and clipped
 to its slot, so it has to be built at the slot's size. A BMP sibling image
 was copied unchanged, and the 1.6.0-ko.1 TXT code copied the full-screen
 `cover.bmp` as its thumbnail; both showed a clipped, enlarged part of the
 cover. BMPs are now downscaled, markers of the old format (no `v2`) count
-as no lookup so the next open rebuilds the covers, and a thumbnail more
+as no lookup, and a thumbnail more
 than 1.25 times its slot on both sides is drawn fitted to the slot
-(`BaseTheme::drawCoverThumbFill`) until then.
+(`BaseTheme::drawCoverThumbFill`) until the book's cache is refreshed.
 
 ### Home never builds covers
 
@@ -432,30 +432,69 @@ in full; a TXT or a first sibling lookup scanned the book's folder. A
 conversion that failed (JPEG over 2048x3072, low heap, a bad PNG) left no
 file and was retried on every home visit. With the index missing, the
 grid also built the whole library index (a full card scan) before its
-first frame. Device timings were not taken; `LOG_DBG` lines now report
-the library read, cover path and draw times and each cover's paint time
-(`HOME`), and each background build (`COVJOB`).
+first frame.
 
-Now the home screen (every theme) only draws cached thumbnails and a
-placeholder for a missing one, and records the thumbnail height it uses
-in `state.json` (`homeCoverThumbHeight`). Once the reader has drawn a
-book's first page, `util/CoverThumbJob` builds that book's cache in a
-priority-0 FreeRTOS task (1.5 s start delay, 10 KB stack freed with the
-task, one book at a time, skipped when the largest free block is under
-48 KB): the sibling recheck, the home thumbnail at the recorded height and
-for TXT the sleep screen's `cover.bmp`. The TXT reader no longer converts
-its cover while opening. JPEG conversions take a mutex, since the
-converter keeps file-level state. Deep sleep and USB drive mode pause the
-job and wait up to 30 s for a running build to finish its file (USB mode
-does not start otherwise). The framebuffer lent during a chapter build
-(`buildscratch`) can only be claimed by the lending task, so the job's
-inflate never takes it; a thumbnail shorter than its pixel rows (still
-being written) draws as a placeholder. A missing library
-index is left to the Library screen; the grid then shows recent books
-only.
+A background build after opening a book was tried next and dropped: on
+the X4 Pro it made opening a book and the first page turns slow (JPEG
+decoding and zip parsing competing for the SD card and CPU right after
+the first page). Nothing builds covers automatically now. Home (every
+theme) draws cached thumbnails or a placeholder, never converts or
+scans, and a missing library index is left to the Library screen (the
+grid then shows recent books only). The sleep screen still builds the
+`cover.bmp` it shows when it is missing, as upstream does (sleep is not
+latency-sensitive), including a first same-name image lookup.
 
-So on the first home visit after this change, books without a cached
-thumbnail show the placeholder; opening a book builds its thumbnail and
-the next home visit shows it. Books the grid takes from the library that
-were never opened keep the placeholder, and so do recent books after a
-theme change (a different thumbnail height) until they are opened again.
+Returning to Home was also slow for reasons other than covers, found in
+the code (no device timings were available):
+
+- Every Home render ran twice: the second pass only existed to build
+  covers after the first frame, so each return cost two panel refreshes.
+  Home now renders once. The Cover Grid learnt its thumbnail height while
+  drawing, so its first pass drew placeholders; the height measured by
+  the last grid is kept, so the first pass draws the covers.
+- The Cover Grid's featured book percentage loaded the whole EPUB
+  metadata (`book.bin`, spine and TOC) or an XTC page table on every
+  visit. A reader now hands its percentage over when it closes
+  (`rememberBookProgress()`), used for the book just closed.
+
+Opening a book: apart from the removed background build, the costs are
+upstream's (EPUB metadata and section cache load, the first page's
+glyph decompression and the anti-aliasing pass). Timing logs to capture
+on the device (`LOG_DBG`, `default` env):
+
+- `HOME Enter: N ms`, `HOME Cover grid enter: library / cover paths /
+  begin`, `HOME Render: draw N ms, display N ms`, `HOME Cover i
+  drawn|placeholder: N ms`
+- `READER Open <reader>: fonts / book / reading stats`, `READER First
+  page on screen N ms after open`
+- `COVER Refresh <path> (thumb N px): built|no cover, N ms`
+
+### Home book menu
+
+Holding Confirm on a selected book, or long-pressing its cover on touch
+boards (Cover Grid covers and featured card, the other themes' recent
+covers), opens 캐시 갱신 / Refresh cache and 파일 삭제 / Delete file.
+Refresh drops the book's recorded image lookup and cached
+`cover*.bmp` / `thumb_*.bmp`, builds the home thumbnail at the current
+theme's height (same-name image, then the embedded cover) and redraws;
+the sleep cover is rebuilt from the same source at the next sleep.
+Reading progress and section caches stay. Delete asks for confirmation,
+then removes the book's reading cache and file (as the file browser
+does), drops it from the recent books, marks the library index for
+rebuild and reloads Home.
+
+While a book is selected, Home claims the Confirm hold
+(`Activity::claimsConfirmHold()`): `MappedInputManager` then reports the
+hold (`wasConfirmHeld()`) instead of running the Confirm button's
+long-press binding. Elsewhere, and on Home's tab items, the binding
+applies.
+
+### NFD Hangul names
+
+Names from macOS/iOS transfers keep decomposed Hangul. Besides the file
+browser (#3036, #3630), `utf8ComposeNfc()` now composes TXT and XTC
+titles (so reader headers, status bar and recent entries), Home recent
+titles and Cover Grid labels (including titles stored decomposed
+earlier), Library rows, the image viewer menu and delete prompt, and
+Home's delete prompt. Same-name cover images match on composed names.
+The web file list is left to the browser, which renders NFD names.
