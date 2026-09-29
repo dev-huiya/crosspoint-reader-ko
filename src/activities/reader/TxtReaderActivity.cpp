@@ -637,10 +637,9 @@ bool TxtReaderActivity::handleFormatInput() {
     }
   }
 
-  // Home-key boards have no front Confirm button: a Home-key hold opens the
-  // menu when that is the user's long-press function, as in the EPUB reader.
-  const bool homeKeyMenu =
-      mappedInput.wasHomeKeyHold() && SETTINGS.longPressMenuFunction == CrossPointSettings::LP_MENU_READER_MENU;
+  // Home-key boards have no front Confirm button: the Home-key gesture mapped
+  // to "reader menu" (Home Button Gestures) opens it, as in the EPUB reader.
+  const bool homeKeyMenu = mappedInput.homeButtonAction() == HomeButtonAction::ReaderMenu;
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || homeKeyMenu ||
       ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
     openReaderMenu();
