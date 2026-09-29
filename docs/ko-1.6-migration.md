@@ -389,9 +389,13 @@ actions directly, so an inverted orientation no longer fires both
 directions from one front button; one power click wakes the device when
 the power short press is bound to Sleep; the TXT long-press page jump
 fires on an unbound page-button hold or a chapter-skip binding. The
-side-button layout values read 왼쪽/오른쪽 (Left/Right) instead of
-이전/다음; the option itself is now hidden, so the Controls list names
-the buttons by position (왼쪽 버튼, 위쪽 측면 버튼, ...).
+Controls list names the buttons by position. On the X4 Pro, whose only
+page keys are the two side keys left and right of the screen (no front
+left/right keys), they read 왼쪽 버튼 / 오른쪽 버튼 (`STR_BUTTON_SIDE_LEFT`
+/ `_RIGHT`); other boards keep 위쪽 / 아래쪽 측면 버튼. Boards with front
+left/right keys as well (X4, X3, X4 Classic, De-Link) would show two
+identical rows with the X4 Pro names, which is why those keep the
+side-button names.
 
 ### Sibling cover images
 
@@ -401,10 +405,57 @@ cover and thumbnails come from: the Cover Grid and the other home themes,
 the sleep screen, the TXT cover. EPUB and XTC fall back to their own
 cover; TXT books have only this one. `lib/SiblingCover` does the lookup
 (one directory pass, nothing retained) and the conversion (the existing
-JPEG/PNG converters, BMP copied). The book's cache directory records the
-result as `sibling.src` (size and path) or `cover.missing`, so home
-renders never rescan the folder. Opening the book rescans it and, when the
-image was added, removed, renamed or resized, deletes the cached
-`cover*.bmp` / `thumb_*.bmp` so they are rebuilt. An edit that keeps the
-file size needs a cache clear. The Cover Grid also shows TXT books' sibling
-covers now, and skips parsing an XTC that has one.
+JPEG/PNG converters; a BMP is downscaled to the same cover-filling size).
+The book's cache directory records the result as `sibling.src` (`v2`,
+size and path) or `cover.missing`. Opening the book rescans the folder
+and, when the image was added, removed, renamed or resized, deletes the
+cached `cover*.bmp` / `thumb_*.bmp` so they are rebuilt. An edit that
+keeps the file size needs a cache clear. The Cover Grid also shows TXT
+books' sibling covers.
+
+Zoomed covers on the grid: a thumbnail is drawn 1:1, centered and clipped
+to its slot, so it has to be built at the slot's size. A BMP sibling image
+was copied unchanged, and the 1.6.0-ko.1 TXT code copied the full-screen
+`cover.bmp` as its thumbnail; both showed a clipped, enlarged part of the
+cover. BMPs are now downscaled, markers of the old format (no `v2`) count
+as no lookup so the next open rebuilds the covers, and a thumbnail more
+than 1.25 times its slot on both sides is drawn fitted to the slot
+(`BaseTheme::drawCoverThumbFill`) until then.
+
+### Home never builds covers
+
+The Cover Grid home built every missing thumbnail synchronously inside its
+second render, one book after another under a loading popup: for an EPUB
+that is opening the zip, parsing content.opf, extracting the cover and a
+JPEG/PNG decode (typically one to a few seconds each); an XTC was loaded
+in full; a TXT or a first sibling lookup scanned the book's folder. A
+conversion that failed (JPEG over 2048x3072, low heap, a bad PNG) left no
+file and was retried on every home visit. With the index missing, the
+grid also built the whole library index (a full card scan) before its
+first frame. Device timings were not taken; `LOG_DBG` lines now report
+the library read, cover path and draw times and each cover's paint time
+(`HOME`), and each background build (`COVJOB`).
+
+Now the home screen (every theme) only draws cached thumbnails and a
+placeholder for a missing one, and records the thumbnail height it uses
+in `state.json` (`homeCoverThumbHeight`). Once the reader has drawn a
+book's first page, `util/CoverThumbJob` builds that book's cache in a
+priority-0 FreeRTOS task (1.5 s start delay, 10 KB stack freed with the
+task, one book at a time, skipped when the largest free block is under
+48 KB): the sibling recheck, the home thumbnail at the recorded height and
+for TXT the sleep screen's `cover.bmp`. The TXT reader no longer converts
+its cover while opening. JPEG conversions take a mutex, since the
+converter keeps file-level state. Deep sleep and USB drive mode pause the
+job and wait up to 30 s for a running build to finish its file (USB mode
+does not start otherwise). The framebuffer lent during a chapter build
+(`buildscratch`) can only be claimed by the lending task, so the job's
+inflate never takes it; a thumbnail shorter than its pixel rows (still
+being written) draws as a placeholder. A missing library
+index is left to the Library screen; the grid then shows recent books
+only.
+
+So on the first home visit after this change, books without a cached
+thumbnail show the placeholder; opening a book builds its thumbnail and
+the next home visit shows it. Books the grid takes from the library that
+were never opened keep the placeholder, and so do recent books after a
+theme change (a different thumbnail height) until they are opened again.
