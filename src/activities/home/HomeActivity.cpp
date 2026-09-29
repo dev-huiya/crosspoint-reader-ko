@@ -163,7 +163,6 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
   recentsLoading = true;
   bool showingLoading = false;
   Rect popupRect;
-  const bool grayCovers = UITheme::getInstance().getMetrics().homeGrayscaleCovers;
 
   int progress = 0;
   for (RecentBook& book : recentBooks) {
@@ -177,8 +176,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
       continue;
     }
     if (!book.coverBmpPath.empty()) {
-      std::string coverPath = grayCovers ? UITheme::getGrayCoverThumbPath(book.coverBmpPath, thumbHeight)
-                                         : UITheme::getCoverThumbPath(book.coverBmpPath, thumbHeight);
+      std::string coverPath = UITheme::getCoverThumbPath(book.coverBmpPath, thumbHeight);
       if (!Storage.exists(coverPath.c_str())) {
         // If epub, try to load the metadata for title/author and cover
         if (FsHelpers::hasEpubExtension(book.path)) {
@@ -192,7 +190,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
           }
           GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
-          bool success = grayCovers ? epub.generateGrayThumbBmp(thumbHeight) : epub.generateThumbBmp(thumbHeight);
+          bool success = epub.generateThumbBmp(thumbHeight);
           if (!success) {
             RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
             book.coverBmpPath = "";
@@ -209,7 +207,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
               popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
             }
             GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
-            bool success = grayCovers ? xtc.generateGrayThumbBmp(thumbHeight) : xtc.generateThumbBmp(thumbHeight);
+            bool success = xtc.generateThumbBmp(thumbHeight);
             if (!success) {
               RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
               book.coverBmpPath = "";
@@ -331,33 +329,7 @@ void HomeActivity::loop() {
 
   // Cover grid home splits navigation by button group (see below); the flat
   // next/previous cycle is for the classic list home only.
-  const bool gridMenu = !coverGridUi && metrics.homeMenuColumns > 1 && !metrics.homeContinueReadingInMenu;
-  if (gridMenu) {
-    // Grid menu: Left/Right step through covers and cells in reading order
-    // (same sequence as the list themes' Prev/Next), Up/Down move one row.
-    // Screen-relative buttons; Home renders in portrait, so on the X4 that is
-    // front Left/Right and side Up/Down.
-    const int bookCount = static_cast<int>(recentBooks.size());
-    const int columns = metrics.homeMenuColumns;
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::ScreenRight}, [this, menuCount] {
-      selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
-      requestUpdate();
-    });
-    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::ScreenLeft}, [this, menuCount] {
-      selectorIndex = ButtonNavigator::previousIndex(selectorIndex, menuCount);
-      requestUpdate();
-    });
-    buttonNavigator.onPressAndContinuous(
-        {MappedInputManager::Button::ScreenDown}, [this, menuCount, bookCount, columns] {
-          selectorIndex = gridVerticalIndex(selectorIndex, bookCount, menuCount - bookCount, columns, 1);
-          requestUpdate();
-        });
-    buttonNavigator.onPressAndContinuous(
-        {MappedInputManager::Button::ScreenUp}, [this, menuCount, bookCount, columns] {
-          selectorIndex = gridVerticalIndex(selectorIndex, bookCount, menuCount - bookCount, columns, -1);
-          requestUpdate();
-        });
-  } else if (!coverGridUi) {
+  if (!coverGridUi) {
     buttonNavigator.onNext([this, menuCount] {
       selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
       requestUpdate();
@@ -452,31 +424,11 @@ void HomeActivity::loop() {
   const int renderedMenuCount =
       menuCount - (metrics.homeContinueReadingInMenu ? 0 : static_cast<int>(recentBooks.size()));
   int menuRow = -1;
-  auto menuTouch = MappedInputManager::RowTouch::None;
-  if (gridMenu) {
-    // Same cell geometry drawButtonMenu uses (only x/y/width of the rect matter).
-    const Rect menuRect{0, menuTop, renderer.getScreenWidth(), 0};
-    const auto hitCell = [&](const int x, const int y) {
-      for (int i = 0; i < renderedMenuCount; i++) {
-        const Rect cell = BaseTheme::homeMenuGridCell(metrics, menuRect, i, renderedMenuCount);
-        if (x >= cell.x && x < cell.x + cell.width && y >= cell.y && y < cell.y + cell.height) return i;
-      }
-      return -1;
-    };
-    int tx = 0;
-    int ty = 0;
-    if (mappedInput.wasScreenTouchDown(tx, ty) && (menuRow = hitCell(tx, ty)) >= 0) {
-      menuTouch = MappedInputManager::RowTouch::Down;
-    } else if (mappedInput.wasScreenTapped(tx, ty) && (menuRow = hitCell(tx, ty)) >= 0) {
-      menuTouch = MappedInputManager::RowTouch::Tap;
-    }
-  } else {
-    // Row height from the theme, not the metrics table: RoundedRaff draws
-    // font-derived rows and the touch grid must match the visuals exactly.
-    const int menuRowHeight = GUI.getMenuRowHeight(renderer);
-    menuTouch = mappedInput.rowTouch(menuRow, menuTop, menuRowHeight + metrics.menuSpacing, renderedMenuCount, 0,
-                                     INT32_MAX, menuRowHeight);
-  }
+  // Row height from the theme, not the metrics table: RoundedRaff draws
+  // font-derived rows and the touch grid must match the visuals exactly.
+  const int menuRowHeight = GUI.getMenuRowHeight(renderer);
+  const auto menuTouch = mappedInput.rowTouch(menuRow, menuTop, menuRowHeight + metrics.menuSpacing, renderedMenuCount,
+                                              0, INT32_MAX, menuRowHeight);
   if (menuTouch != MappedInputManager::RowTouch::None) {
     const int touchedIndex =
         metrics.homeContinueReadingInMenu ? menuRow : menuRow + static_cast<int>(recentBooks.size());
@@ -499,9 +451,11 @@ void HomeActivity::loop() {
 
 void HomeActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto pageWidth = renderer.getScreenWidth();
+  const auto pageHeight = renderer.getScreenHeight();
 
+  renderer.clearScreen();
   if (coverGridUi) {
-    renderer.clearScreen();
     coverGridUi->setSelection(selectorIndex);
     UITheme::getInstance().drawCoverGridHome(*coverGridUi);
     // Front Left/Right walk the tabs, so their hints read Left/Right; the
@@ -530,117 +484,6 @@ void HomeActivity::render(RenderLock&&) {
     }
     return;
   }
-
-  // Covers are read from SD (instead of the cover band cache) exactly when
-  // coverRendered is false; only then do the covers need their gray levels
-  // painted. Selection redraws keep the cover pixels unchanged in the BW
-  // frame, so the differential FAST refresh leaves the grays on the glass.
-  const bool grayPass = metrics.homeGrayscaleCovers && !coverRendered && hasGrayscaleCover(metrics.homeCoverHeight);
-
-  drawHomeFrame();
-
-  const auto refreshMode =
-      cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
-  if (grayPass) {
-    // Combined-base panels must route the base through displayGrayscaleBase so
-    // it activates together with the gray planes.
-    if (renderer.combinesGrayscaleBase()) {
-      renderer.displayGrayscaleBase(refreshMode);
-    } else {
-      renderer.displayBuffer(refreshMode);
-    }
-    renderCoverGrayscale();
-  } else {
-    renderer.displayBuffer(refreshMode);
-  }
-
-  if (!firstRenderDone) {
-    firstRenderDone = true;
-    requestUpdate();
-  } else if (!recentsLoaded && !recentsLoading) {
-    recentsLoading = true;
-    const int themeThumbHeight = GUI.homeCoverThumbHeight(renderer);
-    loadRecentCovers(themeThumbHeight > 0 ? themeThumbHeight : metrics.homeCoverHeight);
-  }
-}
-
-bool HomeActivity::hasGrayscaleCover(const int coverHeight) const {
-  const int count = std::min(static_cast<int>(recentBooks.size()),
-                             std::max(1, UITheme::getInstance().getMetrics().homeRecentBooksCount));
-  for (int i = 0; i < count; i++) {
-    if (recentBooks[i].coverBmpPath.empty()) continue;
-    HalFile file;
-    if (!Storage.openFileForRead("HOME", UITheme::getGrayCoverThumbPath(recentBooks[i].coverBmpPath, coverHeight),
-                                 file)) {
-      continue;
-    }
-    Bitmap bitmap(file);
-    if (bitmap.parseHeaders() == BmpReaderError::Ok && bitmap.hasGreyscale()) return true;
-  }
-  return false;
-}
-
-void HomeActivity::renderCoverGrayscale() {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect coverRect{0, metrics.homeTopPadding, renderer.getScreenWidth(), metrics.homeCoverTileHeight};
-
-  // The framebuffer is reused for the two gray planes (no 48 KB BW snapshot);
-  // the BW frame is redrawn afterwards, with the cover band coming back from
-  // the ~16 KB region cache instead of SD.
-  renderer.clearScreen(0x00);
-  renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-  GUI.drawRecentBookCoversGray(renderer, coverRect, recentBooks);
-  renderer.copyGrayscaleLsbBuffers();
-
-  renderer.clearScreen(0x00);
-  renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-  GUI.drawRecentBookCoversGray(renderer, coverRect, recentBooks);
-  renderer.copyGrayscaleMsbBuffers();
-
-  renderer.displayGrayBuffer();
-  renderer.setRenderMode(GfxRenderer::BW);
-
-  // Controller RAM now holds the gray planes; rewrite it with the BW frame so
-  // the next FAST refresh diffs against what the BW frame says is on screen.
-  drawHomeFrame();
-  renderer.cleanupGrayscaleWithFrameBuffer();
-}
-
-// Row move on a grid home menu. The cover row sits above the grid: Down from a
-// cover enters the first grid row, Up from the first grid row returns to the
-// covers, and moving past the last grid row / above the covers wraps. Columns
-// map proportionally between the cover row and the grid; a short last row
-// clamps to its last item.
-int HomeActivity::gridVerticalIndex(const int index, const int bookCount, const int itemCount, const int columns,
-                                    const int dir) {
-  if (itemCount <= 0 || columns <= 0) return index;
-  const int lastRow = (itemCount - 1) / columns;
-  const auto itemAt = [&](const int row, const int col) {
-    return bookCount + std::min(row * columns + col, itemCount - 1);
-  };
-
-  if (index < bookCount) {
-    const int col = index * columns / bookCount;
-    return itemAt(dir > 0 ? 0 : lastRow, col);
-  }
-
-  const int item = index - bookCount;
-  const int row = item / columns;
-  const int col = item % columns;
-  const int targetRow = row + dir;
-  if (targetRow >= 0 && targetRow <= lastRow) return itemAt(targetRow, col);
-  if (bookCount > 0) {
-    return columns > 1 ? col * (bookCount - 1) / (columns - 1) : 0;
-  }
-  return itemAt(targetRow < 0 ? lastRow : 0, col);
-}
-
-void HomeActivity::drawHomeFrame() {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-
-  renderer.clearScreen();
   bool bufferRestored = coverBufferStored && restoreCoverBuffer();
 
   // Band spans topPadding..homeTopPadding: the cover tile starts at the fixed
@@ -689,12 +532,20 @@ void HomeActivity::drawHomeFrame() {
       [&menuItems](int index) { return std::string(menuItems[index]); },
       [&menuIcons](int index) { return menuIcons[index]; });
 
-  const char* resumeLabel = recentBooks.empty() ? "" : tr(STR_RESUME);
-  const auto labels = metrics.homeMenuColumns > 1 && !metrics.homeContinueReadingInMenu
-                          ? mappedInput.mapDirectionalLabels(resumeLabel, tr(STR_SELECT), tr(STR_DIR_LEFT),
-                                                             tr(STR_DIR_RIGHT), tr(STR_DIR_UP), tr(STR_DIR_DOWN))
-                          : mappedInput.mapLabels(resumeLabel, tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(recentBooks.empty() ? "" : tr(STR_RESUME), tr(STR_SELECT), tr(STR_DIR_UP),
+                                            tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+
+  renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+
+  if (!firstRenderDone) {
+    firstRenderDone = true;
+    requestUpdate();
+  } else if (!recentsLoaded && !recentsLoading) {
+    recentsLoading = true;
+    const int themeThumbHeight = GUI.homeCoverThumbHeight(renderer);
+    loadRecentCovers(themeThumbHeight > 0 ? themeThumbHeight : metrics.homeCoverHeight);
+  }
 }
 
 void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToReader(path); }

@@ -26,8 +26,6 @@ class Xtc {
   std::unique_ptr<xtc::XtcParser> parser;
   bool loaded;
 
-  bool generateThumbBmpImpl(int height, bool gray) const;
-
  public:
   explicit Xtc(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)), loaded(false) {
     // Create cache key based on filepath (same as Epub)
@@ -69,9 +67,6 @@ class Xtc {
   std::string getThumbBmpPath() const;
   std::string getThumbBmpPath(int height) const;
   bool generateThumbBmp(int height) const;
-  // 2-bit 2:3 thumbnail cached separately from the 1-bit one (grayscale home themes)
-  std::string getGrayThumbBmpPath(int height) const;
-  bool generateGrayThumbBmp(int height) const;
 
   // Page access
   uint32_t getPageCount() const;
