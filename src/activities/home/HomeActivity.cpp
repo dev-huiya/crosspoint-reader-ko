@@ -119,20 +119,9 @@ void HomeActivity::resolveGridCoverPaths() {
   }
 }
 
-void HomeActivity::loadRecentCovers(const int coverHeight) {
-  // The home screen only draws cached thumbnails (a placeholder otherwise):
-  // an opened book's cover cache is built in the background by the cover job
-  // (util/CoverThumbJob), at the height recorded here.
-  if (coverHeight > 0 && APP_STATE.homeCoverThumbHeight != coverHeight) {
-    APP_STATE.homeCoverThumbHeight = static_cast<uint16_t>(coverHeight);
-    APP_STATE.saveToFile();
-  }
-  recentsLoaded = true;
-  recentsLoading = false;
-}
-
 void HomeActivity::onEnter() {
   Activity::onEnter();
+  const unsigned long enterStart = millis();
 
   hasOpdsServers = OPDS_STORE.hasServers();
 
@@ -159,6 +148,7 @@ void HomeActivity::onEnter() {
   const auto base = static_cast<int>(recentBooks.size());
   selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasOpdsServers);
 
+  LOG_DBG("HOME", "Enter: %lu ms (%u books)", millis() - enterStart, static_cast<unsigned>(recentBooks.size()));
   // Trigger first update
   requestUpdate();
 }
@@ -362,6 +352,7 @@ void HomeActivity::loop() {
 }
 
 void HomeActivity::render(RenderLock&&) {
+  const unsigned long renderStart = millis();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -377,21 +368,17 @@ void HomeActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(hasContinueReading ? tr(STR_RESUME) : "", tr(STR_SELECT),
                                               tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    const unsigned long displayStart = millis();
     renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH
                                                                    : HalDisplay::FAST_REFRESH);
-    // Slot heights are recorded during the draw above; a change (first layout
-    // pass, orientation switch) points the paths at those sizes and records the
-    // height the background cover job builds thumbnails at.
-    const bool coverSpecChanged = coverGridUi->takeThumbHeightChanged();
-    if (coverSpecChanged) {
+    LOG_DBG("HOME", "Render: draw %lu ms, display %lu ms", displayStart - renderStart, millis() - displayStart);
+    firstRenderDone = true;
+    // Slot heights are recorded during the draw above. Only when they changed
+    // (first layout since boot, orientation switch) do the cover paths point
+    // elsewhere, and only then is a second pass needed to draw the covers.
+    if (coverGridUi->takeThumbHeightChanged()) {
       coverGridUi->refreshCoverPaths();
-      recentsLoaded = false;
-    }
-    if (!firstRenderDone) {
-      firstRenderDone = true;
       requestUpdate();
-    } else if (!recentsLoaded && !recentsLoading) {
-      loadRecentCovers(coverGridUi->thumbHeightFor());
     }
     return;
   }
@@ -447,16 +434,12 @@ void HomeActivity::render(RenderLock&&) {
                                             tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
+  const unsigned long displayStart = millis();
   renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+  LOG_DBG("HOME", "Render: draw %lu ms, display %lu ms", displayStart - renderStart, millis() - displayStart);
 
-  if (!firstRenderDone) {
-    firstRenderDone = true;
-    requestUpdate();
-  } else if (!recentsLoaded && !recentsLoading) {
-    recentsLoading = true;
-    const int themeThumbHeight = GUI.homeCoverThumbHeight(renderer);
-    loadRecentCovers(themeThumbHeight > 0 ? themeThumbHeight : metrics.homeCoverHeight);
-  }
+  // Covers are drawn from their cached thumbnails in this pass; no second pass.
+  firstRenderDone = true;
 }
 
 void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToReader(path); }

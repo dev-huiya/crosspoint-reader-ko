@@ -246,7 +246,7 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
           }
           file.close();
         } else {
-          hasCover = false;  // not built yet: the cover job makes it when the book is opened
+          hasCover = false;  // not cached: Home's "Refresh cache" builds it
         }
       }
 

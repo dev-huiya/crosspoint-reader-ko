@@ -7,7 +7,6 @@
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "components/UITheme.h"
-#include "util/CoverThumbJob.h"
 
 namespace fui = freeink::ui;
 
@@ -18,8 +17,7 @@ void UsbDriveActivity::onEnter() {
 
   // Show the safety instructions before giving the raw SD card to the USB host.
   requestUpdateAndWait();
-  // The background cover job must not touch the card once the host owns it.
-  if (!cover_job::pause(30000) || !Storage.beginUsbDrive()) {
+  if (!Storage.beginUsbDrive()) {
     LOG_ERR("USB", "Unable to start USB Drive");
     preparing = false;
     startFailed = true;
@@ -37,7 +35,6 @@ void UsbDriveActivity::onEnter() {
 
 void UsbDriveActivity::onExit() {
   if (!restartRequested) Storage.endUsbDrive();
-  cover_job::resume();
   Activity::onExit();
 }
 

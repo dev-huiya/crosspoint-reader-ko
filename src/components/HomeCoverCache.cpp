@@ -51,7 +51,7 @@ bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path
   bool drawn = false;
   const unsigned long start = millis();
   // Only a cached thumbnail is drawn; a missing one gets the placeholder (the
-  // cover job builds it when the book is opened).
+  // book's "Refresh cache" on Home builds it).
   if (!path.empty() && Storage.openFileForRead("HOME", path, coverFile)) {
     // A file shorter than its pixel rows is still being written by the cover
     // job (or was cut off); it counts as missing.

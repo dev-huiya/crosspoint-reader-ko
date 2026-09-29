@@ -4,11 +4,6 @@
 
 #include <atomic>
 
-#ifdef ESP_PLATFORM
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
-#endif
-
 namespace buildscratch {
 namespace {
 uint8_t* block = nullptr;
@@ -16,14 +11,6 @@ size_t blockLen = 0;
 // atomic exchange so an opportunistic claim from another task can never
 // double-hand-out the block (single core, but FreeRTOS preempts).
 std::atomic<bool> claimed{false};
-#ifdef ESP_PLATFORM
-// Only the lending task may claim: the framebuffer comes back when its loan
-// ends, which another task (e.g. the background cover job) cannot see.
-TaskHandle_t lender = nullptr;
-bool fromLender() { return xTaskGetCurrentTaskHandle() == lender; }
-#else
-bool fromLender() { return true; }
-#endif
 }  // namespace
 
 void lend(uint8_t* buf, const size_t len) {
@@ -33,9 +20,6 @@ void lend(uint8_t* buf, const size_t len) {
   }
   block = buf;
   blockLen = len;
-#ifdef ESP_PLATFORM
-  lender = xTaskGetCurrentTaskHandle();
-#endif
   claimed.store(false);
 }
 
@@ -53,7 +37,7 @@ void reclaim() {
 }
 
 uint8_t* claim(const size_t minLen, size_t* lenOut) {
-  if (!block || blockLen < minLen || !fromLender()) return nullptr;
+  if (!block || blockLen < minLen) return nullptr;
   bool expected = false;
   if (!claimed.compare_exchange_strong(expected, true)) return nullptr;
   if (lenOut) *lenOut = blockLen;

@@ -120,7 +120,7 @@ class TxtReaderActivity final : public ReaderActivity {
 
   bool loadBook() override;
   std::string getBookTitle() const override { return txt ? txt->getTitle() : ""; }
-  // The thumbnail exists only once the cover job found a same-name image;
+  // The thumbnail exists only once "Refresh cache" (Home, long press) built it;
   // until then the home screen draws the placeholder.
   std::string getBookThumbBmpPath() const override { return txt ? txt->getThumbBmpPath() : ""; }
   std::string getBookCachePath() const override { return txt ? txt->getCachePath() : ""; }

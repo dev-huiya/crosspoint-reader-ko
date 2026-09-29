@@ -8,8 +8,7 @@
 // with lend()/reclaim(); a memory-hungry consumer (e.g. InflateStream's ~43KB
 // tinfl state + window) may claim() it instead of allocating from the heap.
 //
-// Only the task that lent the block may claim it (other tasks cannot know
-// when the loan ends). Exactly one claimant at a time; claim() returns nullptr when the block is
+// Exactly one claimant at a time; claim() returns nullptr when the block is
 // absent or already claimed, and consumers must fall back to the heap. The
 // underlying storage is the framebuffer allocation itself, which is never
 // freed -- so even the pathological case (reclaim() while still claimed, which

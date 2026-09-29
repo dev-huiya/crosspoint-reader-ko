@@ -6,7 +6,6 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
 #include <freertos/task.h>
 
 #include <cstdio>
@@ -172,14 +171,6 @@ constexpr uint32_t FP_ONE = 1UL << 16;
 // Static file pointer for JPEGDEC open callback.
 // Safe in single-threaded embedded context; never accessed concurrently.
 static HalFile* s_jpegFile = nullptr;
-// s_jpegFile and the I/O counter below are shared by every conversion, so
-// conversions from different tasks (the background cover job, the reader)
-// run one at a time.
-static SemaphoreHandle_t conversionMutex() {
-  static StaticSemaphore_t storage;
-  static SemaphoreHandle_t mutex = xSemaphoreCreateMutexStatic(&storage);
-  return mutex;
-}
 static uint8_t s_jpegIoSinceYield = 0;
 
 static void yieldToIdle() { vTaskDelay(1); }
@@ -524,9 +515,6 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(HalFile& jpegFile, Print& b
                                                      int targetHeight, bool oneBit, bool crop,
                                                      bool originalThresholds) {
   LOG_DBG("JPG", "Converting JPEG to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
-
-  xSemaphoreTake(conversionMutex(), portMAX_DELAY);
-  const ScopedCleanup releaseConversion{[]() { xSemaphoreGive(conversionMutex()); }};
 
   if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
     LOG_ERR("JPG", "Not enough heap for JPEG decoder (%u free, need %u)", ESP.getFreeHeap(), MIN_FREE_HEAP);

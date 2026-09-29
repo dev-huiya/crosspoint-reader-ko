@@ -20,6 +20,7 @@ class ReaderActivity : public Activity {
   std::atomic<bool> endOfBookOptionsReady{false};
   std::atomic<bool> pageRendered{false};
   bool bookRemembered = false;
+  unsigned long enteredAt = 0;  // for the open-time log
   void markPageRendered() { pageRendered.store(true, std::memory_order_release); }
   void rememberBookOnceRendered();
 

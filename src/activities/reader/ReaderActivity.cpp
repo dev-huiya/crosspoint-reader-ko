@@ -11,7 +11,6 @@
 #include "CrossPointState.h"
 #include "EpubReaderActivity.h"
 #include "ReaderUtils.h"
-#include "util/CoverThumbJob.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "TxtReaderActivity.h"
@@ -67,15 +66,21 @@ void ReaderActivity::onEnter() {
     APP_STATE.saveToFile();
   }
 
+  const unsigned long fontStart = millis();
   sdFontSystem.ensureLoaded(renderer);
   applyInitialOrientation();
 
+  const unsigned long loadStart = millis();
   if (!loadBook()) {
     finish();
     return;
   }
 
+  const unsigned long statsStart = millis();
   readingTimer.start(getBookCachePath());
+  LOG_DBG("READER", "Open %s: fonts %lu ms, book %lu ms, reading stats %lu ms", name.c_str(), loadStart - fontStart,
+          statsStart - loadStart, millis() - statsStart);
+  enteredAt = fontStart;
 
   requestUpdate();
 }
@@ -83,11 +88,10 @@ void ReaderActivity::onEnter() {
 void ReaderActivity::rememberBookOnceRendered() {
   if (bookRemembered || !pageRendered.load(std::memory_order_acquire)) return;
   bookRemembered = true;
+  LOG_DBG("READER", "First page on screen %lu ms after open", millis() - enteredAt);
   APP_STATE.openEpubPath = bookPath;
   APP_STATE.saveToFile();
   RECENT_BOOKS.addBook(bookPath, getBookTitle(), getBookAuthor(), getBookThumbBmpPath());
-  // The home screen never builds covers; this book's cache is built now, off the reader's tasks.
-  cover_job::schedule(bookPath);
 }
 
 void ReaderActivity::onExit() {

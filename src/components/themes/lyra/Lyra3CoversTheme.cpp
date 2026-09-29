@@ -63,7 +63,7 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
             }
             file.close();
           } else {
-            hasCover = false;  // not built yet
+            hasCover = false;  // not cached
           }
         }
         // Draw either way
