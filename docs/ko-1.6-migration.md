@@ -273,3 +273,64 @@ brought back because the up-front index made a 3 MB file take minutes to open:
   upstream (see "OTA"). Size gate: table above. Cache: `SECTION_FILE_VERSION`
   46 (> upstream 45 > KO 1.5's 42), so caches from every earlier build rebuild.
 
+
+## Rebase onto upstream 1.6.5
+
+`release/1.6.5-ko` starts at the upstream `1.6.5` tag
+(`93e98bb7`, 94 upstream commits after `1.6.0`; `freeink-sdk` at `111fdcc7`)
+and replays the 30 `release/1.6.0-ko` commits in order with their original
+messages and author. No KO commit touched the submodule pointer. Two
+`fix(port)` commits and a translation commit were added; this section is
+the docs commit. `release/1.6.0-ko` is unchanged.
+
+The sections above describe the 1.6.0 port and keep their 1.6.0 numbers
+(sizes, cache version 46, host test count); the values below supersede them
+on this branch.
+
+### Per-commit conflict notes
+
+| KO commit | Conflicts and resolution |
+| --- | --- |
+| build(host): MSVC host tests | Upstream rewrote the parser test (13 tests, `#define private public`). Converted to the friend access struct, which gained the accessors those tests need. `ParsedText` friend added to the upstream `WordStore` version. |
+| feat(ko): localization | **Dropped KO piece:** upstream #3618 added `custom_i18n_builtin_langs`; the KO `--languages` option in `gen_i18n.py` is replaced by `custom_i18n_builtin_langs = en,korean` in `platformio.ini`. Upstream keeps every `Language` enum value, so the KO decoupling of `KeyboardLayoutSet` from the enum is no longer needed and was dropped (upstream's table, including the new Arabic layout, is used). `restoreLegacyKoLanguage()` runs before the new `timezones::applyToClock()`. |
+| feat(font): KoPub/Pretendard built-ins | `fromJson` keeps the KOPUB default plus upstream's Home-button legacy migration. `getReaderLineCompression()` keeps the flat KO 1.00/1.20/1.40/1.60 steps; upstream's new SD-font scale (0.95/1.0/1.3/1.6) is not used. |
+| feat(font): legacy `.epdfont` | Upstream #3646 (TrueType on PSRAM boards) rewrote the registry scan: the `.cpfont`-over-`.epdfont` duplicate rule now works on `cpfontFiles`, and a loose root `.epdfont` is checked before the vector-font branch. Upstream #3633 replaced the per-pixel glyph loop with `drawGlyphBitmap()`; synthetic bold is now a second `drawGlyphBitmap()` offset one pixel along the glyph advance axis. |
+| feat(layout): character wrap + indent | **Behaviour decision:** upstream #3700 stopped splitting Hangul into per-syllable tokens (Korean wraps at spaces unless hyphenation is on). KO character wrap disables hyphenation, so it would have silently become wrap-at-spaces. `hasCjkBreakOpportunityBetween()` / `cjkCharacterBreakByteOffsets()` now take `splitHangul = characterWrap`: on, the pre-#3700 per-syllable breaks (KO 1.5 / 1.6.0-ko behaviour, gap stretch still capped at half a space); off, upstream 1.6.5 behaviour. Section header keeps upstream's character/word spacing fields followed by the KO flags; `SECTION_FILE_VERSION` 49 (upstream 48). Text Settings layout rows: upstream word/character spacing plus the KO indent/wrap rows. |
+| feat(reader): reading statistics | Menu construction uses upstream `chapterPosition()`; the reading timer starts after `loadBook()`, while upstream's `rememberBookOnceRendered()` (#3724) records the book after the first render. |
+| feat(ota) / build(release) | Version `1.6.5-ko.0`. The upstream 1.6.5 release workflow runs on a published release and attaches `crosspoint-<tag>-<device>.bin`, the names the 1.6.5 `OtaUpdater` requests; its "tag must equal `platformio.ini`" check is replaced by the KO set-version-from-tag step. The workflow also attaches `firmware.bin` / `firmware-<board>.bin` copies, the names a 1.6.0-ko device requests, so those devices can still update. |
+| style: clang-format | Conflicting hunks resolved to the merged content. |
+| test: soft flush, golden snapshots | Upstream links the real `TextBlock`/`Page` into the parser test, so lines are captured from ParsedText callbacks or completed pages (`LayoutCapture.h`) instead of a stubbed `TextBlock` constructor. The stub renderer now measures 8 px per codepoint (not per byte), so the indent constant is 8 and **all four goldens were regenerated** on 1.6.5 (checked: no text dropped, indent once per paragraph; the `upstream` profile shows #3700's whole-word Hangul). A raw CR character literal became `'\r'`. |
+| feat(sleep): sleep image selection | Upstream's About action and the KO sleep image action both kept. |
+| feat(gfx): letter spacing | Upstream `drawText()` gained `tracking` (#3528; no tracking beside a space). The TXT justification needs spacing after every glyph including spaces, so `drawTextTracked()` stays; both go through a private `drawTextImpl()`. |
+| feat(reader): TXT port / byte offsets | KO navigation kept; upstream's page-load error screen and `markPageRendered()` (#3724) added around it. |
+| fix(port) commits (new) | Host tests: bundled Expat for `content_opf_parser`, a force-included `__attribute__` shim for MSVC, `std::filesystem::path` → `string()`, `wordAt` via the access struct, `size()` on the SD font test's `HalFile` stub, per-test temp files for parallel ctest. Firmware: the new slider popup uses `UI_12_FONT_ID` (no Noto Sans 18 in the KO profile); the TXT reader opens its menu on the Home action mapped to "reader menu" (upstream removed `wasHomeKeyHold()` and the long-press menu setting). |
+| other commits | Applied without conflicts. The desktop preview is still added and then dropped by its later commit. |
+
+### Results
+
+| Check | Result |
+| --- | --- |
+| Host tests (MSVC 19.4x, CMake 4.4, `ctest -j 8`) | 407/407 pass. |
+| `default` firmware (pioarduino core 6.1.19, platform 55.03.311) | Program flash 5,652,669 / 6,553,600 (86.3%), RAM 58,288 / 327,680 (17.8%), `firmware.bin` 5,666,736 bytes (branch tip). |
+| `x4pro` firmware | Program flash 5,690,842 / 6,553,600 (86.8%), RAM 101,736 / 327,680 (31.0%), `firmware.bin` 5,695,856 bytes (before the translation commit, about +1 KB after it). |
+| Leftover conflict markers | None. |
+
+The platform install upgrades `.platformio/penv` to PlatformIO 6.2.0, whose
+nested ESP-IDF build fails with the SCons `FortranCommon` import error; pin
+`pioarduino==6.1.19` in that penv, as `release.yml` does.
+
+Flash headroom fell from about 1.0 MB to about 0.9 MB (x4pro) since the
+1.6.0-ko tip; the uncompressed Pretendard UI font (+0.6 MB) is the largest
+item since the Phase 5 table.
+
+### Not verified
+
+- No device run. Korean character wrap, justified gaps and paragraph indent
+  on a real page; synthetic bold of a KO 1.5 `.epdfont`; the slider popup
+  readout in Pretendard; the TXT reader menu on the Home key; OTA from
+  1.6.0-ko to a 1.6.5-ko release (legacy asset names) and between 1.6.5-ko
+  releases (new names).
+- Only `default` and `x4pro` were built; `sticky`, `x4c` and `papermono`
+  were not.
+- Host tests and the `x4pro` build predate the translation commit, which
+  changes only `korean.yaml`; `default` was rebuilt at the tip.
