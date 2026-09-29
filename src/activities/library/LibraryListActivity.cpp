@@ -259,7 +259,7 @@ void LibraryListActivity::showRecentBookOptions(const int entry) {
     const auto& books = RECENT_BOOKS.getBooks();
     if (entry >= static_cast<int>(books.size())) return;
     path = books[static_cast<size_t>(entry)].path;
-    title = books[static_cast<size_t>(entry)].title;
+    title = utf8ComposeNfc(books[static_cast<size_t>(entry)].title);
   } else {
     if (!index.isOpen()) return;
     const uint16_t ordinal = index.ordinalForRow(sortOrder, static_cast<uint16_t>(rowFor(entry)));
@@ -709,6 +709,8 @@ bool LibraryListActivity::rowTextFor(const int entry, std::string& title, std::s
     if (fileName) index.readName(record, *fileName);
   }
   if (title.empty()) title = tr(STR_LIBRARY_UNKNOWN_TITLE);
+  // File-name titles (and recent entries) may be decomposed (NFD) Hangul.
+  title = utf8ComposeNfc(title);
   return true;
 }
 

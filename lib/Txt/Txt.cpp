@@ -3,6 +3,7 @@
 #include <FsHelpers.h>
 #include <Logging.h>
 #include <SiblingCover.h>
+#include <Utf8.h>
 
 Txt::Txt(std::string path, std::string cacheBasePath)
     : filepath(std::move(path)), cacheBasePath(std::move(cacheBasePath)) {
@@ -45,7 +46,8 @@ std::string Txt::getTitle() const {
     filename.resize(filename.length() - 4);
   }
 
-  return filename;
+  // Display name: macOS/iOS transfers store decomposed (NFD) Hangul.
+  return utf8ComposeNfc(filename);
 }
 
 void Txt::setupCacheDir() const {

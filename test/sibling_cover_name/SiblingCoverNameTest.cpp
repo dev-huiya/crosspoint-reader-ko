@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "SiblingCoverMatch.h"
 #include "SiblingCoverName.h"
 
 using sibling_cover::ImageType;
@@ -36,4 +37,15 @@ TEST(SiblingCoverNameTest, UsesTheLastExtensionAndUtf8Names) {
   EXPECT_TRUE(isSiblingCoverName("\xEC\xB1\x85.png", "\xEC\xB1\x85.txt"));  // "책"
   EXPECT_EQ(sibling_cover::fileNameOf("/books/a/foo.epub"), "foo.epub");
   EXPECT_EQ(sibling_cover::stemOf("foo"), "foo");
+}
+
+TEST(SiblingCoverNameTest, MatchesAcrossNfdAndNfc) {
+  // "책" composed (U+CC45) and decomposed (U+110E U+1162 U+11A8), as macOS writes it.
+  const std::string nfc = "\xEC\xB1\x85";
+  const std::string nfd = "\xE1\x84\x8E\xE1\x85\xA2\xE1\x86\xA8";
+  EXPECT_FALSE(isSiblingCoverName(nfd + ".jpg", nfc + ".epub"));
+  EXPECT_TRUE(sibling_cover::isSiblingCoverNameNfc(nfd + ".jpg", nfc + ".epub"));
+  EXPECT_TRUE(sibling_cover::isSiblingCoverNameNfc(nfc + ".png", nfd + ".txt"));
+  EXPECT_TRUE(sibling_cover::isSiblingCoverNameNfc(nfd + ".bmp", nfd + ".xtc"));
+  EXPECT_FALSE(sibling_cover::isSiblingCoverNameNfc(nfd + "2.jpg", nfc + ".epub"));
 }

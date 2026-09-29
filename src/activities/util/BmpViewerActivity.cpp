@@ -8,6 +8,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <Utf8.h>
 
 #include <algorithm>
 
@@ -281,8 +282,9 @@ void BmpViewerActivity::doSetSleepCover() {
 }
 
 std::string BmpViewerActivity::currentFileName() const {
+  // Display only: macOS/iOS transfers store decomposed (NFD) Hangul.
   const size_t lastSlash = filePath.find_last_of('/');
-  return lastSlash != std::string::npos ? filePath.substr(lastSlash + 1) : filePath;
+  return utf8ComposeNfc(lastSlash != std::string::npos ? filePath.substr(lastSlash + 1) : filePath);
 }
 
 bool BmpViewerActivity::handleButtonAction(const CrossPointSettings::ButtonAction action) {

@@ -59,6 +59,9 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
     }
 
     recentBooks.push_back(book);
+    // Titles stored from file names before composition may be decomposed (NFD).
+    recentBooks.back().title = utf8ComposeNfc(recentBooks.back().title);
+    recentBooks.back().author = utf8ComposeNfc(recentBooks.back().author);
   }
 }
 
@@ -94,6 +97,7 @@ void HomeActivity::fillCoverGridFromLibrary() {
       continue;
     if (!index.readTitle(record, book.title) && !index.readName(record, book.title)) continue;
     index.readAuthor(record, book.author);
+    book.title = utf8ComposeNfc(book.title);  // file-name titles may be NFD
     if (index.ioFailed()) break;
     recentBooks.push_back(std::move(book));
   }
@@ -538,7 +542,7 @@ void HomeActivity::refreshCover(const std::string& path) {
 void HomeActivity::confirmDeleteBook(const std::string& path) {
   const std::string heading = tr(STR_DELETE_FILE) + std::string("? ");
   auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading,
-                                                        std::string(sibling_cover::fileNameOf(path)));
+                                                        utf8ComposeNfc(std::string(sibling_cover::fileNameOf(path))));
   if (!dialog) {
     LOG_ERR("HOME", "OOM: delete confirmation");
     requestUpdate();

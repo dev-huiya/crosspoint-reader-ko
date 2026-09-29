@@ -1,5 +1,7 @@
 #include "SiblingCover.h"
 
+#include "SiblingCoverMatch.h"
+
 #include <Bitmap.h>
 #include <HalStorage.h>
 #include <JpegToBmpConverter.h>
@@ -228,7 +230,7 @@ bool scaleBmpThumb(HalFile& image, HalFile& thumb, const int width, const int he
 std::string findImage(const std::string& bookPath) {
   const size_t slash = bookPath.find_last_of('/');
   const std::string folder = slash == std::string::npos || slash == 0 ? "/" : bookPath.substr(0, slash);
-  const std::string_view bookFileName = fileNameOf(bookPath);
+  const std::string bookFileName{fileNameOf(bookPath)};
   auto name = makeUniqueNoThrow<char[]>(NAME_BUFFER_SIZE);
   if (!name) {
     LOG_ERR("SIB", "OOM: cover lookup");
@@ -239,7 +241,7 @@ std::string findImage(const std::string& bookPath) {
   for (auto entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
     if (entry.isDirectory()) continue;
     entry.getName(name.get(), NAME_BUFFER_SIZE);
-    if (isSiblingCoverName(name.get(), bookFileName)) {
+    if (isSiblingCoverNameNfc(name.get(), bookFileName)) {
       return folder + (folder == "/" ? "" : "/") + name.get();
     }
   }

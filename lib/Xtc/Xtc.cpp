@@ -11,6 +11,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <SiblingCover.h>
+#include <Utf8.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -84,7 +85,7 @@ std::string Xtc::getTitle() const {
   // Try to get title from XTC metadata first
   std::string title = parser->getTitle();
   if (!title.empty()) {
-    return title;
+    return utf8ComposeNfc(title);
   }
 
   // Fallback: extract filename from path as title
@@ -97,11 +98,12 @@ std::string Xtc::getTitle() const {
     lastSlash++;
   }
 
+  // Display name: macOS/iOS transfers store decomposed (NFD) Hangul.
   if (lastDot == std::string::npos || lastDot <= lastSlash) {
-    return filepath.substr(lastSlash);
+    return utf8ComposeNfc(filepath.substr(lastSlash));
   }
 
-  return filepath.substr(lastSlash, lastDot - lastSlash);
+  return utf8ComposeNfc(filepath.substr(lastSlash, lastDot - lastSlash));
 }
 
 std::string Xtc::getAuthor() const {
