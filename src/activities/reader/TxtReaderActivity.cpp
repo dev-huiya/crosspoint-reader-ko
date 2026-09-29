@@ -531,11 +531,15 @@ void TxtReaderActivity::renderPage(GfxRenderer& renderer) {
             break;
           }
           case CrossPointSettings::JUSTIFIED: {
-            // Only wrapped continuations are stretched; a paragraph's last
-            // line and the page's last line (which may continue on the next
-            // page) stay ragged. The slack is spread between glyphs because
-            // character-wrapped Korean lines have few word gaps to widen.
-            const bool canJustify = !endsParagraph && i + 1 < lineCount;
+            // Only wrapped lines are stretched; a paragraph's last line stays
+            // ragged. The page's last line is stretched too when its
+            // paragraph continues on the next page: loadPageAtOffset marks
+            // every width-broken segment !endsParagraph, so it is a full line
+            // (KO 1.5 could not tell and left it ragged, which read as a
+            // glyph pushed to the next page). The slack is spread between
+            // glyphs because character-wrapped Korean lines have few word
+            // gaps to widen.
+            const bool canJustify = !endsParagraph;
             const int gaps = txt_layout::utf8Length(line) - 1;
             const int extra = effectiveContentWidth - textWidth;
             if (canJustify && extra > 0 && gaps > 0) {

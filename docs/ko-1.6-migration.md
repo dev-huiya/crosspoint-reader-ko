@@ -236,8 +236,10 @@ brought back because the up-front index made a 3 MB file take minutes to open:
   fitting space with a character-break fallback for over-wide words. A page
   never starts on a UTF-8 continuation byte.
 - Justified alignment spreads the slack between glyphs
-  (`GfxRenderer::drawTextTracked`); a paragraph's last line and the page's
-  last line stay ragged. Paragraph indent is one U+3000; extra paragraph
+  (`GfxRenderer::drawTextTracked`); a paragraph's last line stays ragged,
+  but the page's last line is stretched when its paragraph continues on the
+  next page (KO 1.5 left it ragged, which read as a glyph pushed to the next
+  page). Paragraph indent is one U+3000; extra paragraph
   spacing is half a line above every paragraph but the page's first, so pages
   are filled by height instead of a fixed line count.
 - `TxtReaderMenuActivity`: the EPUB menu screen cut down to text settings,
