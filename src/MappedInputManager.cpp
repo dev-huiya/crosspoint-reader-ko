@@ -19,6 +19,7 @@ void MappedInputManager::update(const bool deferCommandActions) const {
   gpio.update();
   actionEvents = 0;
   unboundHoldEvents = 0;
+  confirmHeld = false;
   const unsigned long now = millis();
   const auto& pins = BoardConfig::ACTIVE.input;
   const int8_t physicalPins[] = {pins.back, pins.confirm, pins.left, pins.right, pins.up, pins.down, pins.power};
@@ -36,7 +37,12 @@ void MappedInputManager::update(const bool deferCommandActions) const {
     const bool held = home ? false : gpio.isPressed(button);
     const bool doubleEnabled = SETTINGS.buttonAction(button, CrossPointSettings::DOUBLE) !=
                                CrossPointSettings::ButtonAction::None;
+    // A screen that claims the Confirm hold (Home's book menu) takes it from
+    // the button's own long-press binding.
+    const bool claimedHold = confirmHoldClaimed && SETTINGS.buttonAction(button, CrossPointSettings::SHORT) ==
+                                                       CrossPointSettings::ButtonAction::Confirm;
     const bool longBound =
+        claimedHold ||
         SETTINGS.buttonAction(button, CrossPointSettings::LONG) != CrossPointSettings::ButtonAction::None;
     switch (pressState[button].update(now, pressed, released, held, home && gpio.wasHomeKeyLongPressed(),
                                       doubleEnabled, longBound)) {
@@ -44,6 +50,10 @@ void MappedInputManager::update(const bool deferCommandActions) const {
         emitButtonAction(button, CrossPointSettings::SHORT);
         break;
       case ButtonPressClassifier::Event::Long:
+        if (claimedHold) {
+          confirmHeld = true;
+          break;
+        }
         emitButtonAction(button, CrossPointSettings::LONG);
         if (!longBound) {
           unboundHoldEvents |= uint32_t{1} << SETTINGS.buttonBindings[button][CrossPointSettings::SHORT];

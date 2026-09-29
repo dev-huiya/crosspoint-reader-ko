@@ -12,8 +12,9 @@
 // rescans the book's folder:
 //   sibling.src   "v2 <size>\n<path>" of the image the cached cover came from
 //   cover.missing the last lookup found no image
-// A lookup with `recheck` (opening the book) rescans the folder and, when the
-// result differs from the record (image added, removed, renamed or resized),
+// Nothing rescans on its own: Home's "Refresh cache" calls forget() and
+// rebuilds. A lookup with `recheck` rescans the folder and, when the result
+// differs from the record (image added, removed, renamed or resized),
 // deletes the cached cover*.bmp / thumb_*.bmp so they are rebuilt.
 namespace sibling_cover {
 
@@ -22,6 +23,10 @@ std::string findImage(const std::string& bookPath);
 
 // The sibling image to use for the book, or "" to use the book's own cover.
 std::string resolve(const std::string& bookPath, const std::string& cacheDir, bool recheck = false);
+
+// Drops the recorded lookup and every cached cover*.bmp / thumb_*.bmp in the
+// book's cache directory, so the next build looks for the image again.
+void forget(const std::string& cacheDir);
 
 // Full-size cover BMP, with the same crop / threshold options as the embedded path.
 bool writeCoverBmp(const std::string& imagePath, const std::string& outPath, bool cropped, bool originalThresholds);

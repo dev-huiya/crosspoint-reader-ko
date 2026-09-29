@@ -10,6 +10,7 @@
 #include <LibraryBuilder.h>
 #include <LibraryIndexFile.h>
 #include <Memory.h>
+#include <SiblingCover.h>
 #include <Txt.h>
 #include <Utf8.h>
 #include <Xtc.h>
@@ -20,11 +21,15 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "HomeBookMenuActivity.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "fontIds.h"
+#include "util/BookCacheUtils.h"
+#include "util/BookCoverRefresh.h"
 
 int HomeActivity::getMenuItemCount() const {
   int count = 4;  // File Browser, Library, File transfer, Settings
@@ -229,6 +234,12 @@ void HomeActivity::loop() {
     }
   };
 
+  // A Confirm hold on a selected book opens its menu (claimsConfirmHold()).
+  if (mappedInput.wasConfirmHeld() && selectorIndex < static_cast<int>(recentBooks.size())) {
+    openBookMenu(selectorIndex);
+    return;
+  }
+
   // Cover grid home splits navigation by button group (see below); the flat
   // next/previous cycle is for the classic list home only.
   if (!coverGridUi) {
@@ -264,9 +275,15 @@ void HomeActivity::loop() {
   }
 
   if (coverGridUi) {
-    const int touched = coverGridUi->selectedAction(mappedInput);
+    bool longPress = false;
+    const int touched = coverGridUi->selectedAction(mappedInput, longPress);
     if (touched >= 0 && touched < menuCount) {
       selectorIndex = touched;
+      if (longPress) {
+        if (touched < static_cast<int>(recentBooks.size())) openBookMenu(touched);
+        else requestUpdate();
+        return;
+      }
       activateSelection();
       return;
     }
@@ -306,6 +323,19 @@ void HomeActivity::loop() {
   const int recentCount = std::min(static_cast<int>(recentBooks.size()), coverColumnCount);
   const int coverColumnWidth = (renderer.getScreenWidth() - 2 * metrics.contentSidePadding) / coverColumnCount;
   int touchedBook = -1;
+  // A long press on a recent book's cover opens that book's menu.
+  int holdX = 0;
+  int holdY = 0;
+  if (recentCount > 0 && coverColumnWidth > 0 && mappedInput.wasScreenLongPress(holdX, holdY) &&
+      holdY >= metrics.homeTopPadding && holdY < metrics.homeTopPadding + metrics.homeCoverTileHeight &&
+      holdX >= metrics.contentSidePadding) {
+    const int book = (holdX - metrics.contentSidePadding) / coverColumnWidth;
+    if (book < recentCount) {
+      selectorIndex = book;
+      openBookMenu(book);
+      return;
+    }
+  }
   const auto coverTouch = mappedInput.colTouch(touchedBook, metrics.contentSidePadding, coverColumnWidth, recentCount,
                                                metrics.homeTopPadding,
                                                metrics.homeTopPadding + metrics.homeCoverTileHeight, coverColumnWidth);
@@ -443,6 +473,100 @@ void HomeActivity::render(RenderLock&&) {
 }
 
 void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToReader(path); }
+
+int HomeActivity::homeThumbHeight() const {
+  if (coverGridUi) return coverGridUi->thumbHeightFor();
+  const int themeHeight = GUI.homeCoverThumbHeight(renderer);
+  return themeHeight > 0 ? themeHeight : UITheme::getInstance().getMetrics().homeCoverHeight;
+}
+
+void HomeActivity::openBookMenu(const int index) {
+  if (index < 0 || index >= static_cast<int>(recentBooks.size())) return;
+  const std::string path = recentBooks[static_cast<size_t>(index)].path;
+  auto menu = makeUniqueNoThrow<HomeBookMenuActivity>(renderer, mappedInput, recentBooks[index].title);
+  if (!menu) {
+    LOG_ERR("HOME", "OOM: book menu");
+    return;
+  }
+  startActivityForResult(std::move(menu), [this, path](const ActivityResult& result) {
+    const auto* menuResult = std::get_if<MenuResult>(&result.data);
+    if (result.isCancelled || !menuResult) {
+      requestUpdate();
+      return;
+    }
+    if (menuResult->action == static_cast<int>(HomeBookMenuActivity::MenuAction::REFRESH_CACHE)) {
+      refreshCover(path);
+    } else {
+      confirmDeleteBook(path);
+    }
+  });
+}
+
+void HomeActivity::refreshCover(const std::string& path) {
+  {
+    RenderLock lock;
+    GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  }
+  const bool built = refreshBookCover(path, homeThumbHeight());
+  for (auto& book : recentBooks) {
+    if (book.path != path) continue;
+    // Point the entry at the thumbnail (a book whose cover once failed had none).
+    if (book.coverBmpPath.empty()) {
+      if (FsHelpers::hasEpubExtension(path)) {
+        book.coverBmpPath = Epub(path, "/.crosspoint").getThumbBmpPath();
+      } else if (FsHelpers::hasXtcExtension(path)) {
+        book.coverBmpPath = Xtc(path, "/.crosspoint").getThumbBmpPath();
+      } else if (FsHelpers::hasTxtExtension(path)) {
+        book.coverBmpPath = Txt(path, "/.crosspoint").getThumbBmpPath();
+      }
+      RECENT_BOOKS.updateBook(book.path, book.title, book.author, book.coverBmpPath);
+    }
+  }
+  if (!built) {
+    RenderLock lock;
+    GUI.drawPopup(renderer, tr(STR_NO_COVER_FOUND));
+    delay(1000);
+  }
+  // Drop every snapshot of the old cover so the next render reads the new file.
+  coverRendered = false;
+  coverBufferStored = false;
+  freeCoverBuffer();
+  if (coverGridUi) coverGridUi->refreshCoverPaths();
+  requestUpdate();
+}
+
+void HomeActivity::confirmDeleteBook(const std::string& path) {
+  const std::string heading = tr(STR_DELETE_FILE) + std::string("? ");
+  auto dialog = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, heading,
+                                                        std::string(sibling_cover::fileNameOf(path)));
+  if (!dialog) {
+    LOG_ERR("HOME", "OOM: delete confirmation");
+    requestUpdate();
+    return;
+  }
+  startActivityForResult(std::move(dialog), [this, path](const ActivityResult& result) {
+    if (result.isCancelled) {
+      requestUpdate();
+      return;
+    }
+    // As the file browser does: the reading cache goes with the file.
+    clearBookCache(path);
+    if (!Storage.remove(path.c_str())) {
+      LOG_ERR("HOME", "Failed to delete %s", path.c_str());
+      {
+        RenderLock lock;
+        GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
+      }
+      delay(1000);
+      requestUpdate();
+      return;
+    }
+    RECENT_BOOKS.removeByPath(path);
+    // The Library screen rebuilds its index; the grid already skips missing files.
+    library::markLibraryIndexDirty();
+    activityManager.goHome();
+  });
+}
 
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }
 

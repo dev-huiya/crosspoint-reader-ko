@@ -52,6 +52,11 @@ class MappedInputManager {
   // button's short-press action so a screen can give the hold its own meaning
   // (then call suppressActions(), or the release also runs the short press).
   bool wasUnboundHold(CrossPointSettings::ButtonAction shortAction) const;
+  // While claimed (ActivityManager asks the current activity each frame), a
+  // long press on a button whose short press is Confirm is reported by
+  // wasConfirmHeld() instead of running that button's long-press binding.
+  void setConfirmHoldClaimed(bool claimed) const { confirmHoldClaimed = claimed; }
+  bool wasConfirmHeld() const { return confirmHeld; }
   // Drops this frame's actions and the presses in progress (button combos).
   void suppressActions() const;
 #if FREEINK_CAP_TOUCH
@@ -167,6 +172,8 @@ class MappedInputManager {
   mutable uint32_t actionEvents = 0;
   mutable uint32_t deferredActionEvents = 0;
   mutable uint32_t unboundHoldEvents = 0;
+  mutable bool confirmHoldClaimed = false;
+  mutable bool confirmHeld = false;
   void emitButtonAction(uint8_t button, CrossPointSettings::PressKind kind) const;
 #if FREEINK_CAP_TOUCH
   bool powerConfirmClickFrame = false;

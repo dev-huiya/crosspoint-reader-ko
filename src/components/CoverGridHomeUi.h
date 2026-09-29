@@ -22,7 +22,9 @@ class CoverGridHomeUi final : public UiAppHost {
   void begin(const std::vector<RecentBook>& books, bool hasOpds, bool hasContinueReading);
   void refreshCoverPaths();
   void setSelection(int selection) { selected = selection; }
-  int selectedAction(const MappedInputManager& input);
+  // Touched element's value, or -1; longPress tells a cover's long press
+  // apart from a tap.
+  int selectedAction(const MappedInputManager& input, bool& longPress);
   // Exact generation height, shared by every slot and recorded during draw.
   // Thumbs must be generated at the drawn size: rescaling a dithered 1-bit
   // image aliases badly.
@@ -54,6 +56,7 @@ class CoverGridHomeUi final : public UiAppHost {
   bool thumbHeightChanged = false;
   int selected = 0;
   int pending = -1;
+  bool pendingLongPress = false;
   int progress = -1;
   bool hasOpds = false;
   bool hasContinueReading = false;

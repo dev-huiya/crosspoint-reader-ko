@@ -58,6 +58,12 @@ class HomeActivity final : public Activity {
     return HomeMenuItem::NONE;
   }
   void onSelectBook(const std::string& path);
+  // Long-press menu for recentBooks[index]: refresh its cover cache or delete it.
+  void openBookMenu(int index);
+  void refreshCover(const std::string& path);
+  void confirmDeleteBook(const std::string& path);
+  // Thumbnail height the current theme draws recent covers at.
+  int homeThumbHeight() const;
   void onFileBrowserOpen();
   void onLibraryOpen();
   void onSettingsOpen();
@@ -81,6 +87,7 @@ class HomeActivity final : public Activity {
   void onEnter() override;
   void onExit() override;
   void loop() override;
+  bool claimsConfirmHold() const override { return selectorIndex < static_cast<int>(recentBooks.size()); }
   void render(RenderLock&&) override;
   bool isHomeActivity() const override { return true; }
 };

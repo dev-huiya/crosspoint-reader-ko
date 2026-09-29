@@ -76,13 +76,18 @@ void CoverGridHomeUi::noteThumbHeight(int slotHeight) {
 void CoverGridHomeUi::onAction(const fui::ActionEvent& event, void* user) {
   auto& self = *static_cast<CoverGridHomeUi*>(user);
   self.pending = event.value;
+  self.pendingLongPress = event.longPress;
   self.app.clearTapFlash();
 }
 
-int CoverGridHomeUi::selectedAction(const MappedInputManager& input) {
+int CoverGridHomeUi::selectedAction(const MappedInputManager& input, bool& longPress) {
   pending = -1;
-  const auto touch = routeTouch(input);
-  return touch.snap.touchReleased ? pending : -1;
+  pendingLongPress = false;
+  // Covers also take a long press (the book's menu); the SDK reports it while
+  // the finger is still down.
+  const auto touch = routeTouch(input, true);
+  longPress = pendingLongPress;
+  return touch.snap.touchReleased || pendingLongPress ? pending : -1;
 }
 
 void CoverGridHomeUi::screenFn(UiScreen& screen, void* user) { static_cast<CoverGridHomeUi*>(user)->draw(screen); }
@@ -212,6 +217,8 @@ void CoverGridHomeUi::drawCurrent(UiScreen& screen, fui::Rect rect, const int co
     return static_cast<CoverGridHomeUi*>(user)->paintFramedCover(target, cover, 0);
   };
   fui::bookCard(screen.frame(), rect, card);
+  // bookCard registers taps only; the featured book's long press opens its menu.
+  screen.frame().hit(rect, SELECT, 0, fui::InputLongPress);
 
   if (selected == 0 && !BoardConfig::hasTouch()) {
     // Button boards only: a vertical accent bar left of the card, cover-height
@@ -244,7 +251,7 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
   grid.columns = GRID_COLUMNS;
   grid.columnLayout = fui::CoverGridColumnLayout::SpaceBetween;
   grid.action = SELECT;
-  grid.inputMask = fui::InputTouch;
+  grid.inputMask = fui::InputTouch | fui::InputLongPress;
   grid.selectedIndex = selected > 0 && selected < static_cast<int>(books->size()) ? selected - 1 : -1;
   // Same thick cover ring as the featured card; the dithered Cell background
   // was easy to miss behind a dark cover.

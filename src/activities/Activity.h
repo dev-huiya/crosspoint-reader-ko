@@ -50,6 +50,9 @@ class Activity {
   // Returns true when the activity schedules its own forced refresh.
   virtual bool handleForcedRefresh() { return false; }
   virtual bool handleButtonAction(CrossPointSettings::ButtonAction) { return false; }
+  // True while a Confirm hold means something here (MappedInputManager::wasConfirmHeld()),
+  // ahead of the Confirm button's own long-press binding.
+  virtual bool claimsConfirmHold() const { return false; }
   virtual bool isHomeActivity() const { return false; }
   virtual bool handleHomeGesture() { return false; }
   virtual ScreenshotInfo getScreenshotInfo() const { return {}; }

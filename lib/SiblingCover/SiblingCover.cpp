@@ -269,6 +269,12 @@ std::string resolve(const std::string& bookPath, const std::string& cacheDir, co
   return image;
 }
 
+void forget(const std::string& cacheDir) {
+  Storage.remove((cacheDir + MARKER_NAME).c_str());
+  Storage.remove((cacheDir + MISSING_NAME).c_str());
+  clearCachedCovers(cacheDir);
+}
+
 bool writeCoverBmp(const std::string& imagePath, const std::string& outPath, const bool cropped,
                    const bool originalThresholds) {
   HalFile image, bmp;

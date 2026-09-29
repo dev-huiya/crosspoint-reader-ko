@@ -102,6 +102,7 @@ void ActivityManager::loop() {
   }
 
   if (currentActivity) {
+    mappedInput.setConfirmHoldClaimed(currentActivity->claimsConfirmHold());
     using Action = CrossPointSettings::ButtonAction;
     if (mappedInput.wasAction(Action::FileBrowser)) {
       goToFileBrowser();
