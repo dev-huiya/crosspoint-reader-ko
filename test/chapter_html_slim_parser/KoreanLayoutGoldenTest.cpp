@@ -96,7 +96,7 @@ std::vector<Fixture> fixtures() {
 
 class KoreanLayoutGoldenTest : public ::testing::TestWithParam<LayoutOptions> {
  protected:
-  std::string filepath = (std::filesystem::temp_directory_path() / "korean-layout-golden.xhtml").generic_string();
+  std::string filepath = perTestTempPath("korean-layout-golden");
   GfxRenderer renderer;
   CssParser cssParser{"/tmp"};
 

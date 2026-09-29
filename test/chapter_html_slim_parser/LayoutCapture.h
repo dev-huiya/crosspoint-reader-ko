@@ -3,7 +3,10 @@
 #include <Epub/Page.h>
 #include <Epub/blocks/TextBlock.h>
 
+#include <gtest/gtest.h>
+
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -34,4 +37,15 @@ inline void captureLayoutPage(const Page& page) {
     const TextBlock* block = static_cast<const PageLine&>(*element).getBlock();
     if (block) captureLayoutLine(*block);
   }
+}
+
+// ctest runs every test case in its own process, in parallel, so a temp file
+// shared by name would be rewritten under another case. Key it on the case.
+inline std::string perTestTempPath(const char* stem) {
+  const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+  std::string name = std::string(stem) + "-" + (info ? info->name() : "none");
+  for (char& c : name) {
+    if (c == '/' || c == '\\') c = '_';
+  }
+  return (std::filesystem::temp_directory_path() / (name + ".xhtml")).generic_string();
 }

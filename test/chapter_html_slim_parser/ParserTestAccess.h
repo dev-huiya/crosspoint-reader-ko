@@ -37,4 +37,5 @@ struct ChapterHtmlSlimParserTestAccess {
 
 struct ParsedTextTestAccess {
   static const auto& linkIds(const ParsedText& text) { return text.wordLinkIds; }
+  static std::string_view wordAt(const ParsedText& text, const size_t i) { return text.wordAt(i); }
 };

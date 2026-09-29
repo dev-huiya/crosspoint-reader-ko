@@ -42,6 +42,9 @@ target_include_directories(crosspoint_test_common INTERFACE
 )
 if(MSVC)
   target_compile_options(crosspoint_test_common INTERFACE /W4 /utf-8 /Zc:preprocessor)
+  # Visual Studio generators cannot pass a function-style macro, so the GCC
+  # attribute shim is force-included instead.
+  target_compile_options(crosspoint_test_common INTERFACE "/FI${CMAKE_CURRENT_SOURCE_DIR}/msvc_compat.h")
 else()
   target_compile_options(crosspoint_test_common INTERFACE -Wall -Wextra -pedantic)
 endif()

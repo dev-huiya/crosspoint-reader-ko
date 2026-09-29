@@ -106,7 +106,7 @@ class KoreanParserLayoutTest : public ::testing::TestWithParam<bool> {
  protected:
   // The HalStorage stub opens paths with fopen(), so a temp file stands in for
   // the SD card. Each run rewrites it.
-  std::string filepath = (std::filesystem::temp_directory_path() / "korean-parser-layout.xhtml").generic_string();
+  std::string filepath = perTestTempPath("korean-parser-layout");
   GfxRenderer renderer;
   CssParser cssParser{"/tmp"};
 

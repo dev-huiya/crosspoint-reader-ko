@@ -115,12 +115,12 @@ TEST_F(ChapterHtmlSlimParserTest, PageImageDeserializeRejectsMissingImageBlock) 
   const auto path = std::filesystem::temp_directory_path() / "crosspoint-missing-image-cache.bin";
   {
     HalFile output;
-    ASSERT_TRUE(output.open(path.c_str(), "wb"));
+    ASSERT_TRUE(output.open(path.string().c_str(), "wb"));
     const int16_t coordinates[] = {0, 0};
     output.write(coordinates, sizeof(coordinates));
   }
   HalFile input;
-  ASSERT_TRUE(input.open(path.c_str(), "rb"));
+  ASSERT_TRUE(input.open(path.string().c_str(), "rb"));
   EXPECT_EQ(PageImage::deserialize(input), nullptr);
 }
 
@@ -184,8 +184,8 @@ TEST_F(ChapterHtmlSlimParserTest, SpanWithHiddenAttributeShouldBeSkipped) {
   Access::characters(parser, " After ", 7);
 
   ASSERT_EQ(Access::text(parser).size(), 2);
-  ASSERT_EQ(Access::text(parser).wordAt(0), "Before");
-  ASSERT_EQ(Access::text(parser).wordAt(1), "After");
+  ASSERT_EQ(ParsedTextTestAccess::wordAt(Access::text(parser), 0), "Before");
+  ASSERT_EQ(ParsedTextTestAccess::wordAt(Access::text(parser), 1), "After");
 }
 
 TEST_F(ChapterHtmlSlimParserTest, DivWithHiddenAttributeContentShouldBeSkipped) {
