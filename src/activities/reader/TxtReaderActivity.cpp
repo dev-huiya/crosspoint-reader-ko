@@ -982,7 +982,12 @@ void TxtReaderActivity::loadProgress() {
   }
 
   if (offset != SIZE_MAX && offset < fileSize) {
-    moveToOffset(snapToLineStart(offset));
+    // No snapToLineStart: the saved offset is a page start, often in the
+    // middle of a wrapped paragraph, and snapping it back to the paragraph
+    // start reopened the book (e.g. on wake) one or more pages earlier.
+    // loadPageAtOffset starts mid-line pages as forward turns do, and
+    // moveToOffset aligns the offset to the index page containing it.
+    moveToOffset(offset);
     LOG_DBG("TRS", "Loaded progress: offset %zu / %zu", currentOffset, fileSize);
   }
 }

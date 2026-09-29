@@ -253,7 +253,11 @@ brought back because the up-front index made a 3 MB file take minutes to open:
 - Progress: `progress.bin` is page (2 bytes, the 1.6 layout) + 2 zero bytes +
   the byte offset (4 bytes); the offset is the position, the page number is
   for upstream builds. A KO 1.5 `TXTP` v2 file (41 bytes, offset at the end)
-  is read as well, so a card coming from 1.5 keeps its positions. A 1.6
+  is read as well, so a card coming from 1.5 keeps its positions. A saved
+  offset is restored as is, not snapped back to its paragraph start (KO 1.5
+  and the first 1.6 port did, which reopened a page that began mid-paragraph
+  one page early, most visibly on wake); `moveToOffset` still aligns it to
+  the index page that contains it. A 1.6
   four-byte file names only a page; the reader starts at the top and jumps
   there once the background index reaches it, unless the user has moved on.
 - Index cache: `CACHE_VERSION` 5 (1.6 wrote 3, the first KO port 4), keyed
