@@ -6,6 +6,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <PngToBmpConverter.h>
+#include <SiblingCover.h>
 #include <Utf8.h>
 #include <ZipFile.h>
 
@@ -675,10 +676,25 @@ std::string Epub::getCoverBmpPath(bool cropped, bool originalThresholds) const {
   return cachePath + "/" + coverFileName + ".bmp";
 }
 
+std::string Epub::siblingCoverImage(const bool recheck) const {
+  return sibling_cover::resolve(filepath, cachePath, recheck);
+}
+
 bool Epub::generateCoverBmp(bool cropped, bool originalThresholds) const {
   // Already generated, return true
   if (Storage.exists(getCoverBmpPath(cropped, originalThresholds).c_str())) {
     return true;
+  }
+
+  // A same-name image beside the book replaces the embedded cover.
+  const std::string siblingImage = siblingCoverImage();
+  if (!siblingImage.empty()) {
+    setupCacheDir();
+    // An unreadable image falls back to the embedded cover.
+    if (sibling_cover::writeCoverBmp(siblingImage, getCoverBmpPath(cropped, originalThresholds), cropped,
+                                     originalThresholds)) {
+      return true;
+    }
   }
 
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
@@ -775,6 +791,12 @@ bool Epub::generateThumbBmp(int height) const {
     return true;
   }
 
+  const std::string siblingImage = siblingCoverImage();
+  if (!siblingImage.empty()) {
+    setupCacheDir();
+    if (sibling_cover::writeThumbBmp(siblingImage, getThumbBmpPath(height), height)) return true;
+  }
+
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
     LOG_ERR("EBP", "Cannot generate thumb BMP, cache not loaded");
     return false;
@@ -785,6 +807,11 @@ bool Epub::generateThumbBmp(int height) const {
 
 bool Epub::generateThumbBmpFromSource(int height) {
   if (Storage.exists(getThumbBmpPath(height).c_str())) return true;
+  const std::string siblingImage = siblingCoverImage();
+  if (!siblingImage.empty()) {
+    setupCacheDir();
+    if (sibling_cover::writeThumbBmp(siblingImage, getThumbBmpPath(height), height)) return true;
+  }
   // Parser input and metadata outlive parsing but exceed the small task stack budget.
   auto metadata = makeUniqueNoThrow<BookMetadataCache::BookMetadata>();
   auto zip = makeUniqueNoThrow<ZipFile>(filepath);

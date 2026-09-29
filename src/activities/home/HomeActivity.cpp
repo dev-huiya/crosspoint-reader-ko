@@ -116,6 +116,8 @@ void HomeActivity::resolveGridCoverPaths() {
         continue;
       }
       book.coverBmpPath = xtc->getThumbBmpPath();
+    } else if (FsHelpers::hasTxtExtension(book.path)) {
+      book.coverBmpPath = Txt(book.path, "/.crosspoint").getThumbBmpPath();
     }
   }
 }
@@ -153,8 +155,21 @@ void HomeActivity::loadGridCover(RecentBook& book, int height, bool& showingLoad
       popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
       GUI.fillPopupProgress(renderer, popupRect, 0);
     }
-    if (xtc->load() && xtc->generateThumbBmp(height)) {
-      return;
+    // A sibling cover image needs no parsed book.
+    if (!xtc->siblingCoverImage().empty() && xtc->generateThumbBmp(height)) return;
+    if (xtc->load() && xtc->generateThumbBmp(height)) return;
+  } else if (FsHelpers::hasTxtExtension(book.path)) {
+    // Only a same-name image beside the file; cover.missing keeps this cheap.
+    Txt txt(book.path, "/.crosspoint");
+    book.coverBmpPath = txt.getThumbBmpPath();
+    if (Storage.exists(txt.getThumbBmpPath(height).c_str())) return;
+    if (!txt.siblingCoverImage().empty()) {
+      if (!showingLoading) {
+        showingLoading = true;
+        popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+        GUI.fillPopupProgress(renderer, popupRect, 0);
+      }
+      if (txt.generateThumbBmp(height)) return;
     }
   }
   book.coverBmpPath.clear();

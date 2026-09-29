@@ -206,6 +206,8 @@ bool EpubReaderActivity::loadBook() {
   });
 
   epub->setupCacheDir();
+  // Pick up a same-name cover image added, changed or removed since the last open.
+  (void)epub->siblingCoverImage(true);
 
   HalFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {

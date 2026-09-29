@@ -24,13 +24,16 @@ class Txt {
   void setupCacheDir() const;
   bool clearCache() const;
 
-  // Cover image support. A missing cover is checked again only when the book opens.
+  // Cover image: the same-name image beside the file (lib/SiblingCover). The
+  // folder is scanned again only when the book opens (bookOpen).
   [[nodiscard]] std::string getCoverBmpPath() const;
   [[nodiscard]] std::string getThumbBmpPath() const;
   [[nodiscard]] std::string getThumbBmpPath(int height) const;
   [[nodiscard]] bool generateCoverBmp(bool bookOpen = false) const;
   [[nodiscard]] bool generateThumbBmp(int height) const;
   [[nodiscard]] std::string findCoverImage() const;
+  // Cached lookup of findCoverImage() (lib/SiblingCover); `recheck` rescans.
+  [[nodiscard]] std::string siblingCoverImage(bool recheck = false) const;
 
   // Read content from file
   [[nodiscard]] bool readContent(uint8_t* buffer, size_t offset, size_t length) const;

@@ -55,6 +55,9 @@ class Epub {
   const std::string& getTitle() const;
   const std::string& getAuthor() const;
   const std::string& getLanguage() const;
+  // Same-name image beside the book, which covers and thumbnails use before
+  // the embedded cover (lib/SiblingCover). `recheck` rescans the folder.
+  std::string siblingCoverImage(bool recheck = false) const;
   std::string getCoverBmpPath(bool cropped = false, bool originalThresholds = false) const;
   bool generateCoverBmp(bool cropped = false, bool originalThresholds = false) const;
   std::string getThumbBmpPath() const;

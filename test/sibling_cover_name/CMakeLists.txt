@@ -1,0 +1,4 @@
+add_executable(SiblingCoverNameTest SiblingCoverNameTest.cpp)
+target_include_directories(SiblingCoverNameTest PRIVATE ${REPO_ROOT}/lib/SiblingCover)
+target_link_libraries(SiblingCoverNameTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(SiblingCoverNameTest)

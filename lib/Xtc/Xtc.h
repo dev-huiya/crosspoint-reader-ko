@@ -60,6 +60,8 @@ class Xtc {
   bool hasChapters() const;
   const std::vector<xtc::ChapterInfo>& getChapters();
 
+  // Same-name image beside the book, used before the first page (lib/SiblingCover).
+  std::string siblingCoverImage(bool recheck = false) const;
   // Cover image support (for sleep screen)
   std::string getCoverBmpPath() const;
   bool generateCoverBmp() const;

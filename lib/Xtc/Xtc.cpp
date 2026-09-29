@@ -10,6 +10,7 @@
 #include <Bitmap.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <SiblingCover.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -129,10 +130,22 @@ const std::vector<xtc::ChapterInfo>& Xtc::getChapters() {
 
 std::string Xtc::getCoverBmpPath() const { return cachePath + "/cover.bmp"; }
 
+std::string Xtc::siblingCoverImage(const bool recheck) const {
+  return sibling_cover::resolve(filepath, cachePath, recheck);
+}
+
 bool Xtc::generateCoverBmp() const {
   // Already generated
   if (Storage.exists(getCoverBmpPath().c_str())) {
     return true;
+  }
+
+  // A same-name image beside the book replaces the first-page cover.
+  const std::string siblingImage = siblingCoverImage();
+  if (!siblingImage.empty()) {
+    setupCacheDir();
+    // An unreadable image falls back to the first page.
+    if (sibling_cover::writeCoverBmp(siblingImage, getCoverBmpPath(), true, false)) return true;
   }
 
   if (!loaded || !parser) {
@@ -283,6 +296,13 @@ bool Xtc::generateThumbBmp(int height) const {
   // Already generated
   if (Storage.exists(getThumbBmpPath(height).c_str())) {
     return true;
+  }
+
+  // Needs no loaded file, so the home screen can skip parsing the book.
+  const std::string siblingImage = siblingCoverImage();
+  if (!siblingImage.empty()) {
+    setupCacheDir();
+    if (sibling_cover::writeThumbBmp(siblingImage, getThumbBmpPath(height), height)) return true;
   }
 
   if (!loaded || !parser) {
