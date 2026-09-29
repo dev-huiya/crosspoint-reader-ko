@@ -1,5 +1,6 @@
 #include "HomeCoverCache.h"
 
+#include <Arduino.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
 
@@ -48,8 +49,15 @@ bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path
   }
   cached.valid = false;
   bool drawn = false;
+  const unsigned long start = millis();
+  // Only a cached thumbnail is drawn; a missing one gets the placeholder (the
+  // cover job builds it when the book is opened).
   if (!path.empty() && Storage.openFileForRead("HOME", path, coverFile)) {
-    if (coverBitmap.parseHeaders() == BmpReaderError::Ok && coverBitmap.getWidth() > 0 && coverBitmap.getHeight() > 0) {
+    // A file shorter than its pixel rows is still being written by the cover
+    // job (or was cut off); it counts as missing.
+    if (coverBitmap.parseHeaders() == BmpReaderError::Ok && coverBitmap.getWidth() > 0 &&
+        coverBitmap.getHeight() > 0 &&
+        coverFile.size() >= static_cast<size_t>(coverBitmap.getRowBytes()) * coverBitmap.getHeight() + 54) {
       // The art nudges a few px right of center; the spine below hugs its
       // left edge either way.
       constexpr int ART_SHIFT = 3;
@@ -60,7 +68,15 @@ bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path
         // edge moves with each cover's fit margin): a dark band with a
         // dithered crease makes every cover read as a bound book. Drawn here
         // so the PSRAM snapshot below captures it.
-        const int artLeft = std::max<int>(rect.x, rect.x + (rect.width - coverBitmap.getWidth()) / 2 + ART_SHIFT);
+        // An oversized thumbnail is drawn fitted, unshifted (drawCoverThumbFill).
+        const int bmpW = coverBitmap.getWidth();
+        const int bmpH = coverBitmap.getHeight();
+        const bool fitted = bmpW * 4 > rect.width * 5 && bmpH * 4 > rect.height * 5;
+        const int artWidth =
+            fitted ? static_cast<int>(bmpW * std::min(static_cast<float>(rect.width) / bmpW,
+                                                      static_cast<float>(rect.height) / bmpH))
+                   : bmpW;
+        const int artLeft = std::max<int>(rect.x, rect.x + (rect.width - artWidth) / 2 + (fitted ? 0 : ART_SHIFT));
         renderer.fillRect(artLeft, rect.y, 3, rect.height);
         renderer.fillRectDither(artLeft + 3, rect.y, 2, rect.height, Color::LightGray);
       }
@@ -71,6 +87,7 @@ bool HomeCoverCache::paint(fui::Rect rect, size_t index, const std::string& path
     GUI.drawCoverPlaceholder(renderer, Rect{rect.x, rect.y, rect.width, rect.height});
     renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
   }
+  LOG_DBG("HOME", "Cover %u %s: %lu ms", static_cast<unsigned>(index), drawn ? "drawn" : "placeholder", millis() - start);
   if (coverCache) {
     const size_t needed = renderer.getRegionByteSize(rect.x, rect.y, rect.width, rect.height);
     if (needed > cached.bytes && needed <= coverCacheCapacity - coverCacheUsed) {

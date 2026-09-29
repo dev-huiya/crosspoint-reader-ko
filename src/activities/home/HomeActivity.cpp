@@ -71,15 +71,12 @@ void HomeActivity::fillCoverGridFromLibrary() {
   }
   auto& index = reader->index;
   auto& record = reader->record;
+  // Building a missing index scans the whole card; the Library screen does
+  // that. Until it exists the grid shows the recent books only.
   if (!index.open(library::libraryIndexPath())) {
     index.close();
-    GUI.drawPopup(renderer, tr(STR_LIBRARY_REBUILDING));
-    library::BuildStats stats;
-    if (!library::buildLibraryIndex("/", stats, SETTINGS.libraryUseMetadata != 0) ||
-        !index.open(library::libraryIndexPath())) {
-      LOG_ERR("HOME", "Cannot populate cover grid from library");
-      return;
-    }
+    LOG_INF("HOME", "No library index; cover grid shows recent books only");
+    return;
   }
   for (uint16_t row = 0; row < index.bookCount() && recentBooks.size() < CoverGridHomeUi::MAX_BOOKS; ++row) {
     RecentBook book;
@@ -122,129 +119,14 @@ void HomeActivity::resolveGridCoverPaths() {
   }
 }
 
-void HomeActivity::loadGridCover(RecentBook& book, int height, bool& showingLoading, Rect& popupRect) {
-  if (!book.coverBmpPath.empty() && Storage.exists(UITheme::getCoverThumbPath(book.coverBmpPath, height).c_str()))
-    return;
-  // Only one parser lives at a time; EPUB/XTC objects exceed the stack budget.
-  if (FsHelpers::hasEpubExtension(book.path)) {
-    auto epub = makeUniqueNoThrow<Epub>(book.path, "/.crosspoint");
-    if (!epub) {
-      LOG_ERR("HOME", "OOM: cover EPUB");
-      return;
-    }
-    book.coverBmpPath = epub->getThumbBmpPath();
-    if (Storage.exists(epub->getThumbBmpPath(height).c_str())) return;
-    if (!showingLoading) {
-      showingLoading = true;
-      popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-      GUI.fillPopupProgress(renderer, popupRect, 0);
-    }
-    if (epub->generateThumbBmpFromSource(height)) {
-      return;
-    }
-  } else if (FsHelpers::hasXtcExtension(book.path)) {
-    auto xtc = makeUniqueNoThrow<Xtc>(book.path, "/.crosspoint");
-    if (!xtc) {
-      LOG_ERR("HOME", "OOM: cover XTC");
-      return;
-    }
-    book.coverBmpPath = xtc->getThumbBmpPath();
-    if (Storage.exists(xtc->getThumbBmpPath(height).c_str())) return;
-    if (!showingLoading) {
-      showingLoading = true;
-      popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-      GUI.fillPopupProgress(renderer, popupRect, 0);
-    }
-    // A sibling cover image needs no parsed book.
-    if (!xtc->siblingCoverImage().empty() && xtc->generateThumbBmp(height)) return;
-    if (xtc->load() && xtc->generateThumbBmp(height)) return;
-  } else if (FsHelpers::hasTxtExtension(book.path)) {
-    // Only a same-name image beside the file; cover.missing keeps this cheap.
-    Txt txt(book.path, "/.crosspoint");
-    book.coverBmpPath = txt.getThumbBmpPath();
-    if (Storage.exists(txt.getThumbBmpPath(height).c_str())) return;
-    if (!txt.siblingCoverImage().empty()) {
-      if (!showingLoading) {
-        showingLoading = true;
-        popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-        GUI.fillPopupProgress(renderer, popupRect, 0);
-      }
-      if (txt.generateThumbBmp(height)) return;
-    }
+void HomeActivity::loadRecentCovers(const int coverHeight) {
+  // The home screen only draws cached thumbnails (a placeholder otherwise):
+  // an opened book's cover cache is built in the background by the cover job
+  // (util/CoverThumbJob), at the height recorded here.
+  if (coverHeight > 0 && APP_STATE.homeCoverThumbHeight != coverHeight) {
+    APP_STATE.homeCoverThumbHeight = static_cast<uint16_t>(coverHeight);
+    APP_STATE.saveToFile();
   }
-  book.coverBmpPath.clear();
-}
-
-void HomeActivity::loadRecentCovers(int coverHeight) {
-  recentsLoading = true;
-  bool showingLoading = false;
-  Rect popupRect;
-
-  int progress = 0;
-  for (RecentBook& book : recentBooks) {
-    // The cover grid shares one slot size; generating at any other height
-    // would rescale the dithered thumb at draw time and alias badly.
-    const int thumbHeight = coverGridUi ? coverGridUi->thumbHeightFor() : coverHeight;
-    if (coverGridUi) {
-      loadGridCover(book, thumbHeight, showingLoading, popupRect);
-      ++progress;
-      if (showingLoading) GUI.fillPopupProgress(renderer, popupRect, progress * 100 / recentBooks.size());
-      continue;
-    }
-    if (!book.coverBmpPath.empty()) {
-      std::string coverPath = UITheme::getCoverThumbPath(book.coverBmpPath, thumbHeight);
-      if (!Storage.exists(coverPath.c_str())) {
-        // If epub, try to load the metadata for title/author and cover
-        if (FsHelpers::hasEpubExtension(book.path)) {
-          Epub epub(book.path, "/.crosspoint");
-          // Skip loading css since we only need metadata here
-          epub.load(false, true);
-
-          // Try to generate thumbnail image for Continue Reading card
-          if (!showingLoading) {
-            showingLoading = true;
-            popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-          }
-          GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
-          bool success = epub.generateThumbBmp(thumbHeight);
-          if (!success) {
-            RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
-            book.coverBmpPath = "";
-          }
-          coverRendered = false;
-          requestUpdate();
-        } else if (FsHelpers::hasXtcExtension(book.path)) {
-          // Handle XTC file
-          Xtc xtc(book.path, "/.crosspoint");
-          if (xtc.load()) {
-            // Try to generate thumbnail image for Continue Reading card
-            if (!showingLoading) {
-              showingLoading = true;
-              popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-            }
-            GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
-            bool success = xtc.generateThumbBmp(thumbHeight);
-            if (!success) {
-              RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
-              book.coverBmpPath = "";
-            }
-            coverRendered = false;
-            requestUpdate();
-          }
-        } else if (FsHelpers::hasTxtExtension(book.path)) {
-          Txt txt(book.path, "/.crosspoint");
-          if (!txt.generateThumbBmp(thumbHeight)) {
-            RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
-            book.coverBmpPath = "";
-          }
-          coverRendered = false;
-          requestUpdate();
-        }
-      }
-    }
-    progress++;
-  }
-
   recentsLoaded = true;
   recentsLoading = false;
 }
@@ -263,9 +145,15 @@ void HomeActivity::onEnter() {
   loadRecentBooks(coverGridUi ? CoverGridHomeUi::MAX_BOOKS : metrics.homeRecentBooksCount);
   hasContinueReading = !recentBooks.empty();
   if (coverGridUi) {
+    const unsigned long fillStart = millis();
     fillCoverGridFromLibrary();
+    const unsigned long resolveStart = millis();
     resolveGridCoverPaths();
+    const unsigned long beginStart = millis();
     coverGridUi->begin(recentBooks, hasOpdsServers, hasContinueReading);
+    LOG_DBG("HOME", "Cover grid enter: library %lu ms, cover paths %lu ms, begin %lu ms (%u books)",
+            resolveStart - fillStart, beginStart - resolveStart, millis() - beginStart,
+            static_cast<unsigned>(recentBooks.size()));
   }
 
   const auto base = static_cast<int>(recentBooks.size());
@@ -481,7 +369,9 @@ void HomeActivity::render(RenderLock&&) {
   renderer.clearScreen();
   if (coverGridUi) {
     coverGridUi->setSelection(selectorIndex);
+    const unsigned long drawStart = millis();
     UITheme::getInstance().drawCoverGridHome(*coverGridUi);
+    LOG_DBG("HOME", "Cover grid draw: %lu ms", millis() - drawStart);
     // Front Left/Right walk the tabs, so their hints read Left/Right; the
     // side page buttons (unhinted) walk the covers.
     const auto labels = mappedInput.mapLabels(hasContinueReading ? tr(STR_RESUME) : "", tr(STR_SELECT),
@@ -490,9 +380,8 @@ void HomeActivity::render(RenderLock&&) {
     renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH
                                                                    : HalDisplay::FAST_REFRESH);
     // Slot heights are recorded during the draw above; a change (first layout
-    // pass, orientation switch) means the paths must point at those sizes and
-    // any missing thumbs must be generated. Refreshing the paths right away
-    // lets the next pass draw already-cached thumbs before generation runs.
+    // pass, orientation switch) points the paths at those sizes and records the
+    // height the background cover job builds thumbnails at.
     const bool coverSpecChanged = coverGridUi->takeThumbHeightChanged();
     if (coverSpecChanged) {
       coverGridUi->refreshCoverPaths();
@@ -502,9 +391,7 @@ void HomeActivity::render(RenderLock&&) {
       firstRenderDone = true;
       requestUpdate();
     } else if (!recentsLoaded && !recentsLoading) {
-      loadRecentCovers(CoverGridHomeUi::THUMB_HEIGHT);
-      coverGridUi->refreshCoverPaths();
-      requestUpdate();
+      loadRecentCovers(coverGridUi->thumbHeightFor());
     }
     return;
   }

@@ -23,6 +23,9 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
   bool showBootScreen = true;
+  // Height of the current home screen's cover thumbnails, recorded by the home
+  // screen so an opened book's thumbnail can be built in the background (0 = unknown).
+  uint16_t homeCoverThumbHeight = 0;
 
   static const char* getFilePath() { return "/.crosspoint/state.json"; }
   void toJson(JsonDocument& doc) const;

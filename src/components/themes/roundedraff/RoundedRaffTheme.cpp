@@ -100,6 +100,8 @@ void RoundedRaffTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
             hasCover = false;
           }
           file.close();
+        } else {
+          hasCover = false;  // not built yet
         }
       }
 

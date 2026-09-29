@@ -38,6 +38,7 @@
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
+#include "util/CoverThumbJob.h"
 #include "util/ScreenshotUtil.h"
 #include "util/Timezones.h"
 
@@ -226,6 +227,8 @@ static bool loadSleepFrameBuffer() {
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
+  // Let a background cover build finish its file before the card powers down.
+  cover_job::pause(30000);
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
   const bool isQuickResumeSleep =

@@ -28,8 +28,6 @@ bool XtcReaderActivity::loadBook() {
   }
   xtc = std::move(loadedXtc);
   xtc->setupCacheDir();
-  // Pick up a same-name cover image added, changed or removed since the last open.
-  (void)xtc->siblingCoverImage(true);
   loadProgress();
   return true;
 }

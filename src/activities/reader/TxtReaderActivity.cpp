@@ -66,7 +66,6 @@ bool TxtReaderActivity::loadBook() {
     return false;
   }
   txt->setupCacheDir();
-  (void)txt->generateCoverBmp(true);
   fileSize = txt->getFileSize();
   return true;
 }
